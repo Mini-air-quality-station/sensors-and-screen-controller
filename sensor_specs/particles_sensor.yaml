@@ -1,0 +1,34 @@
+sensors:
+  - name: Particle sensor PM1.0
+    model: PMSA003-C
+    measure_unit: μg/m³
+    measure_freq_unit: s # Seconds
+    measure_freq_caps: #TODO: Update caps when discussed
+      - 1
+      - 2
+      - 3
+    default_measure_freq: 2
+    env_name: PARTICLE_PM1_PMSA003-C_FREQ
+    active: true
+  - name: Particle sensor PM2.5
+    model: PMSA003-C
+    measure_unit: μg/m³
+    measure_freq_unit: s # Seconds
+    measure_freq_caps: #TODO: Update caps when discussed
+      - 1
+      - 2
+      - 3
+    default_measure_freq: 2
+    env_name: PARTICLE_PM25_PMSA003-C_FREQ
+    active: true
+  - name: Particle sensor PM10
+    model: PMSA003-C
+    measure_unit: μg/m³
+    measure_freq_unit: s # Seconds
+    measure_freq_caps: #TODO: Update caps when discussed
+      - 1
+      - 2
+      - 3
+    default_measure_freq: 2
+    env_name: PARTICLE_PM10_PMSA003-C_FREQ
+    active: true

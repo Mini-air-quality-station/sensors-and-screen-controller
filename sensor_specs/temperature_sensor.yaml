@@ -1,0 +1,23 @@
+sensors:
+  - name: Temperature sensor
+    model: BMP280
+    measure_unit: °C
+    measure_freq_unit: s # Seconds
+    measure_freq_caps: #TODO: Update caps when discussed
+      - 1
+      - 2
+      - 3
+    default_measure_freq: 2
+    env_name: TEMPERATURE_BMP280_FREQ
+    active: false
+  - name: Temperature sensor
+    model: DHT22
+    measure_unit: °C
+    measure_freq_unit: s # Seconds
+    measure_freq_caps: #TODO: Update caps when discussed
+      - 1
+      - 2
+      - 3
+    default_measure_freq: 2
+    env_name: TEMPERATURE_DHT22_FREQ
+    active: true
