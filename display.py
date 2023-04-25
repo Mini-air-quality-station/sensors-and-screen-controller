@@ -1,57 +1,89 @@
-from typing import Literal
+from __future__ import annotations
+import logging
+from typing import List
+from luma.core.virtual import terminal as luma_terminal
+from luma.lcd.device import st7789
+from luma.core.interface.serial import spi
 from PIL import ImageFont
-from luma.core.device import device as luma_device
-from luma.core.render import canvas
 
-from base_display import BaseDisplayHandler
+class Terminal(luma_terminal):
+    def __init__(self, device, font=None, color="white", bgcolor="black", tabstop=4, line_height=None, animate=False, word_wrap=False):
+        super().__init__(device, font, color, bgcolor, tabstop, line_height, animate, word_wrap)
+        self.scroll = False
 
-class ScreenDisplay(BaseDisplayHandler):
-    def __init__(self, display: luma_device) -> None:
-        super().__init__()
-        self._font = ImageFont.truetype("DejaVuSans.ttf", 12)
-        self._font_height = self._font.getsize("M")[1]
-        self.rows = display.height // self._font_height
-        self.highlight = -1
-        self._text_lines: list[str] = []
-        self._display_device = display
-        self._display_device.show()
+    def goto(self, x: int, y: int):
+        if (0 <= x < self.width) and (0 <= y < self.height):
+            #pylint: disable=attribute-defined-outside-init
+            self._cx = self._cw * x
+            self._cy = self._ch * y
+            #pylint: enable=attribute-defined-outside-init
 
-    def clear(self, layer: Literal["text", "top", "all"] = "text"):
-        if layer == "all" or layer == "text":
-            self._display_device.clear()
-            self._text_lines.clear()
+    @property
+    def x(self):
+        return self._cx // self._cw
 
-    def push_back(self, text: str):
-        redraw = False
-        if len(self._text_lines) >= self.rows:
-            self._text_lines.pop(0)
-            redraw = True
-        self._text_lines.append(text)
-        # TODO: only redraw when redraw is true if false update part of screen
-        self._redraw()
+    @property
+    def y(self):
+        return self._cy // self._ch
 
-    def push_front(self, text: str):
-        if len(self._text_lines) >= self.rows:
-            self._text_lines.pop()
-        self._text_lines.insert(0, text)
-        self._redraw()
+    def println(self, text="", *, highlight = False, fill = True, scroll_first = False):
+        if fill:
+            text = text.ljust(self.width)
+        if scroll_first:
+            self.scroll = True
+            self.newline()
+            self.scroll = False
+        if highlight:
+            self.reverse_colors()
+            super().println(text)
+            self.reverse_colors()
+        else:
+            super().println(text)
 
-    def highlight_text(self, row: int):
-        self.highlight = row
-        self._redraw() # TODO: redraw only rows that get/stop being highlighted
+    def newline(self):
+        if self.scroll or self.y + 1 < self.height:
+            super().newline()
+        else:
+            self.flush()
+            self._cy += self._ch
 
-    def _redraw(self):
-        self._display_device.clear()
-        with canvas(self._display_device) as draw:
-            for index, line in enumerate(self._text_lines):
-                fill = "white"
-                if index == self.highlight:
-                    fill = "black"
-                    draw.rectangle((
-                        0, index * self._font_height,
-                        self._display_device.width, (index + 1) * self._font_height), outline="white", fill="white")
-                draw.text((0, index * self._font_height), line, fill=fill, font=self._font)
 
-    def update_row(self, row: int, text: str):
-        self._text_lines[row] = text
-        self._redraw() # TODO: redraw only updated row
+class ScreenDisplay:
+    def __init__(self, terminal: Terminal) -> None:
+        self._display = terminal
+        self.rows = self._display.height
+
+    def clear(self):
+        self._display.clear()
+
+    def print_lines(self, lines: List[str], *, highlight=-1):
+        self._display.goto(0, 0)
+        for i, line in enumerate(lines):
+            self._display.println(line, highlight=(i == highlight))
+        # clear unused part of screen
+        for _ in range(self.rows - len(lines)):
+            self._display.println()
+
+    def push_back(self, text: str, *, highlight = False):
+        self._display.goto(0, self._display.height - 1)
+        self._display.println(text, highlight=highlight, scroll_first=True)
+
+    def update_row(self, row: int, text: str, *, highlight: bool = False):
+        self._display.goto(0, row)
+        logging.debug("row=%d, text=%s", row, text)
+        self._display.println(text, highlight=highlight)
+
+#pylint: disable-next=invalid-name
+def ST7789Display():
+    return ScreenDisplay(
+        Terminal(
+            st7789(
+                spi(gpio_DC=27, gpio_RST=17),
+                width=320,
+                height=240,
+                rotate=0,
+                active_low=False
+            ),
+            font=ImageFont.truetype("DejaVuSansMono.ttf", 24)
+        )
+    )
