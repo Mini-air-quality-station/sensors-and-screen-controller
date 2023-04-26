@@ -86,8 +86,9 @@ class Device:
         config.read(self.config_file)
         sensor_conf = {}
         for sensor_type in SensorType:
-            if sensor_type.to_conf() in config['sensors_config']:
-                sensor_conf[sensor_type] = float(config['sensors_config'][sensor_type.to_conf()])
+            type_conf = SensorType.to_conf(sensor_type)
+            if type_conf in config['sensors_config']:
+                sensor_conf[sensor_type] = float(config['sensors_config'][type_conf])
         return sensor_conf
 
     def _get_sensor_timers(self, readings: SensorReadings, interface: Interface):

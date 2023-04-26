@@ -2,7 +2,7 @@ from __future__ import annotations
 from enum import Enum, auto
 import functools
 import logging
-from threading import Event, Lock, Timer
+from threading import Lock, Timer, Condition
 from typing import Callable
 
 import pigpio
@@ -26,8 +26,9 @@ class SensorType(Enum):
         """@brief Returns index of element"""
         return list(SensorType).index(sensor_type)
 
+    @classmethod
     @functools.cache
-    def to_conf(self):
+    def to_conf(cls, sensor_type: SensorType):
         type_conf = {
             SensorType.TEMPERATURE: "temperature_dht22_freq",
             SensorType.HUMIDITY: "humidity_dht22_freq",
@@ -36,7 +37,7 @@ class SensorType(Enum):
             SensorType.PM2_5: "particle_pm25_pmsa003-c_freq",
             SensorType.PM10: "particle_pm10_pmsa003-c_freq",
         }
-        return type_conf[self]
+        return type_conf[sensor_type]
 
 
 class Key(Enum):
@@ -62,8 +63,14 @@ class InfluxDatabase(Database):
         self._lock = Lock()
 
         url = "http://localhost:8086"
-        self.org = "my-org"
-        self.client = influxdb_client.InfluxDBClient(url=url, org=self.org)
+        self.org = "mini_air_quality"
+        self.bucket = "sensor_data"
+        self.username = "mini_air_quality"
+        self.password = "mini_air_quality"
+        self.token = "6y-fM0HpRAwx1P-fbH_3DaXklPqyFlAzUd58STICzqAlIcOks55jpjhyf6udF-nCykZTLzRMor48r279jfFWWw=="
+        self.client = influxdb_client.InfluxDBClient(
+            url=url, org=self.org, username=self.username, password=self.password, token=self.token
+        )
         self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
         self.query_api = self.client.query_api()
 
@@ -73,7 +80,7 @@ class InfluxDatabase(Database):
 
     def get_last(self, sensor_type: SensorType) -> int | float:
         with self._lock:
-            query = f'from(bucket:"sensors")\
+            query = f'from(bucket:"{self.bucket}")\
                 |> range(start: 0)\
                 |> filter(fn:(r) => r._measurement == "{sensor_type.name}")\
                 |> last()'
@@ -95,7 +102,7 @@ class InfluxDatabase(Database):
         with self._lock:
             point = influxdb_client.Point(sensor_type.name).field("value", value)
             try:
-                self.write_api.write(bucket="sensors", org=self.org, record=point)
+                self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             except NewConnectionError:
                 logging.exception("InfluxDB Connection error, couldn't write")
             except ApiException:
@@ -125,37 +132,35 @@ class ResettableTimer(Timer):
     """call start to initialize, call reset to 'start' timer"""
     def __init__(self, interval: float, function: Callable[..., object], *args, **kwargs) -> None:
         super().__init__(interval, function, args, kwargs)
-        self._function_wait = Event()
+        self._function_wait = Condition()
         self._end = False
-        self._lock = Lock()
 
     def cancel(self):
-        with self._lock:
+        with self._function_wait:
             super().cancel()
             self._end = True
-            self._function_wait.set()
+            self._function_wait.notify()
 
     def stop(self):
         """@brief stop timer and wait for cancel or reset"""
-        self._function_wait.set()
+        with self._function_wait:
+            self._function_wait.notify()
 
     def reset(self, interval: float | None = None):
         """@brief restart timer with different interval if not None"""
-        with self._lock:
-            # in case _funtion_wait is waiting
-            self._function_wait.set()
-            self._function_wait.clear()
+        with self._function_wait:
             if interval is not None:
                 self.interval = interval
+            self._function_wait.notify()
             self.finished.set()
 
     def run(self) -> None:
         while self.finished.wait():
-            with self._lock:
+            with self._function_wait:
                 if self._end:
                     break
                 self.finished.clear()
-            finished_wait = not self._function_wait.wait(self.interval)
+                finished_wait = not self._function_wait.wait(self.interval)
             if finished_wait:
                 self.function(*self.args, **self.kwargs)
 
