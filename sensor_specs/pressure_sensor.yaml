@@ -1,0 +1,12 @@
+sensors:
+  - name: Pressure sensor
+    model: BMP280
+    measure_unit: hPa
+    measure_freq_unit: s # Seconds
+    measure_freq_caps: #TODO: Update caps when discussed
+      - 1
+      - 2
+      - 3
+    default_measure_freq: 2
+    env_name: PRESSURE_BMP280_FREQ
+    active: true
