@@ -60,7 +60,7 @@ class PMSA003C(Sensor):
     def __init__(self) -> None:
         super().__init__()
         self.RX = 24
-        self.pi = pigpio()
+        self.pi = pigpio.pi()
         self.start1 = 0x42
         self.start2 = 0x4d
         self.working = True
