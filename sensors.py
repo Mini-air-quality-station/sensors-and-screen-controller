@@ -60,13 +60,11 @@ class PMSA003C(Sensor):
     def __init__(self) -> None:
         super().__init__()
         self.RX = 24
-        self.pi = pigpio.pi()
+        self.pi = pigpio()
         self.start1 = 0x42
         self.start2 = 0x4d
         self.working = True
-        self.pm1 = None
-        self.pm2_5 = None
-        self.pm10 = None
+        self.pm = {SensorType.PM1: None, SensorType.PM2_5: None, SensorType.PM10: None}
         
         if not self.pi.connected:
             logging.error("pigpio not connected!")
@@ -81,7 +79,7 @@ class PMSA003C(Sensor):
         self.data = []
 
     def check_sum(self, data):
-        return len(data) == 32 and sum(data[:30]) == data[-2:]
+        return len(data) == 32 and sum(data[:30]) == int.from_bytes(data[-2:], byteorder='big')
 
     def get_data(self, data):
         indices = [i for i, x in enumerate(data[:-1]) if x == self.start1 and data[i+1] == self.start2]
@@ -95,9 +93,9 @@ class PMSA003C(Sensor):
         self.data += data
         frame = self.get_data(self.data)
         if frame:
-            self.pm1 = int.from_bytes(data[4:6], byteorder='little')
-            self.pm2_5 = int.from_bytes(data[6:8], byteorder='little')
-            self.pm10 = int.from_bytes(data[8:10], byteorder='little')
+            self.pm[SensorType.PM1] = int.from_bytes(data[4:6], byteorder='big')
+            self.pm[SensorType.PM2_5] = int.from_bytes(data[6:8], byteorder='big')
+            self.pm[SensorType.PM10] = int.from_bytes(data[8:10], byteorder='big')
             self.data = []
 
     def get_reading(self, sensor_type: SensorType) -> int | float:
@@ -106,25 +104,14 @@ class PMSA003C(Sensor):
         with self._lock:
             try:
                 self.update()
-                if sensor_type == SensorType.PM1:
-                    if self.pm1 is None:
-                        logging.warning("Couldn't get a reading") 
-                        raise SensorReadingError
-                    self.pm1, tmp = None, self.pm1
-                    return tmp
-                elif sensor_type == SensorType.PM2_5:
-                    if self.pm2_5 is None:
-                        logging.warning("Couldn't get a reading") 
-                        raise SensorReadingError
-                    self.pm2_5, tmp = None, self.pm2_5
-                    return tmp
-                elif sensor_type == SensorType.PM10:
-                    if self.pm10 is None:
-                        logging.warning("Couldn't get a reading") 
-                        raise SensorReadingError
-                    self.pm10, tmp = None, self.pm10
-                    return tmp
             except:
                 logging.exception("Couldn't get a reading")
                 raise SensorReadingError
-        raise WrongSensorType
+                
+            if sensor_type not in self.pm:
+                raise WrongSensorType
+            if self.pm[sensor_type] is None:
+                raise SensorReadingError
+                    
+            self.pm[sensor_type], tmp = None, self.pm[sensor_type]
+            return tmp
