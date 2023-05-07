@@ -1,10 +1,9 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from random import randint
 from threading import Lock
+import logging
 import board
 import adafruit_bmp280
-import logging
 from adafruit_dht import DHT22
 import pigpio
 
@@ -27,34 +26,44 @@ class Sensor(ABC):
 class DHT(Sensor):
     def __init__(self) -> None:
         super().__init__()
-        self.dht = DHT22(board.D4)
+        try:
+            self.dht = DHT22(board.D4)
+        except AttributeError:
+            logging.exception("DHT error")
 
     def get_reading(self, sensor_type: SensorType) -> int:
         with self._lock:
             try:
                 if sensor_type == SensorType.TEMPERATURE:
-                    return self.dht.temperature
-                if sensor_type == SensorType.HUMIDITY:
-                    return self.dht.humidity
-            except:
-                logging.exception("Couldn't get a reading")
-                raise SensorReadingError
-        raise WrongSensorType
+                    temp = self.dht.temperature
+                    if temp is not None:
+                        return int(temp)
+                elif sensor_type == SensorType.HUMIDITY:
+                    humidity = self.dht.humidity
+                    if humidity is not None:
+                        return int(humidity)
+            except Exception as exc:
+                raise SensorReadingError from exc
+        raise SensorReadingError
 
 class BMP280(Sensor):
     def __init__(self) -> None:
         super().__init__()
-        self.bmp280 = adafruit_bmp280.Adafruit_BMP280_I2C(board.I2C(), address=0x76)
-        
+        try:
+            self.bmp280 = adafruit_bmp280.Adafruit_BMP280_I2C(board.I2C(), address=0x76)
+        except AttributeError:
+            logging.exception("BMP280 error")
+
     def get_reading(self, sensor_type: SensorType) -> int | float:
         with self._lock:
             try:
                 if sensor_type == SensorType.PRESSURE:
-                    return int(self.bmp280.pressure)
-            except:
-                logging.exception("Couldn't get a reading")
-                raise SensorReadingError
-        raise WrongSensorType
+                    pressure = self.bmp280.pressure
+                    if pressure is not None:
+                        return int(self.bmp280.pressure)
+            except Exception as exc:
+                raise SensorReadingError from exc
+        raise SensorReadingError
 
 class PMSA003C(Sensor):
     def __init__(self) -> None:
@@ -64,19 +73,19 @@ class PMSA003C(Sensor):
         self.start1 = 0x42
         self.start2 = 0x4d
         self.working = True
-        self.pm = {SensorType.PM1: None, SensorType.PM2_5: None, SensorType.PM10: None}
-        
+        self.pm: dict[SensorType, None | int] = {SensorType.PM1: None, SensorType.PM2_5: None, SensorType.PM10: None}
+
         if not self.pi.connected:
             logging.error("pigpio not connected!")
             self.working = False
             return
-        
+
         pigpio.exceptions = False
         self.pi.bb_serial_read_close(self.RX)
         pigpio.exceptions = True
         self.pi.bb_serial_read_open(self.RX, 9600)
-        
-        self.data = []
+
+        self.data = bytearray()
 
     def check_sum(self, data):
         return len(data) == 32 and sum(data[:30]) == int.from_bytes(data[-2:], byteorder='big')
@@ -87,10 +96,10 @@ class PMSA003C(Sensor):
             if self.check_sum(data[i:i+32]):
                 return data[i:i+32]
         return []
-        
+
     def update(self):
-        (count, data) = self.pi.bb_serial_read(self.RX)
-        self.data += data
+        (_, data) = self.pi.bb_serial_read(self.RX)
+        self.data += data if isinstance(data, bytearray) else []
         frame = self.get_data(self.data)
         if frame:
             self.pm[SensorType.PM1] = int.from_bytes(data[4:6], byteorder='big')
@@ -104,14 +113,14 @@ class PMSA003C(Sensor):
         with self._lock:
             try:
                 self.update()
-            except:
-                logging.exception("Couldn't get a reading")
-                raise SensorReadingError
-                
+            except Exception as exc:
+                raise SensorReadingError from exc
+
             if sensor_type not in self.pm:
                 raise WrongSensorType
-            if self.pm[sensor_type] is None:
+            tmp = self.pm[sensor_type] 
+            if tmp is None:
                 raise SensorReadingError
-                    
-            self.pm[sensor_type], tmp = None, self.pm[sensor_type]
+
+            self.pm[sensor_type] = None
             return tmp

@@ -14,8 +14,6 @@ from sensors import BMP280, DHT, PMSA003C, Sensor, SensorReadingError
 from util import Database, InfluxDatabase, SensorType, RepeatTimer, SensorReadings, Switch
 from menu import Interface, Key
 
-# TODO: Menu still doesn't work too well
-
 class Device:
     def __init__(
         self,
@@ -34,22 +32,23 @@ class Device:
         self.last_mtime = Path(self.config_file).stat().st_mtime
         self.sensor_timers: dict[SensorType, RepeatTimer] = {}
         self.config_timer: RepeatTimer = RepeatTimer(10, self._update_freq)
+        self.interface: None | Interface = None
 
     def _initialize(self):
         readings = SensorReadings(database=self.database)
-        interface = Interface(menu=SENSOR_MENU, sensor_readings=readings, display=self.display)
+        self.interface = Interface(menu=SENSOR_MENU, sensor_readings=readings, display=self.display)
 
         if not self.pi_gpio.connected:
             logging.error("Pigpio not connected!")
         else:
             self.switches = [
-                Switch(Key.UP, 5, self.pi_gpio, interface.key_press),
-                Switch(Key.DOWN, 19, self.pi_gpio, interface.key_press),
-                Switch(Key.CANCEL, 6, self.pi_gpio, interface.key_press),
-                Switch(Key.OK, 13, self.pi_gpio, interface.key_press)
-                ]
+                Switch(Key.UP, 5, self.pi_gpio, self.interface.key_press),
+                Switch(Key.DOWN, 19, self.pi_gpio, self.interface.key_press),
+                Switch(Key.CANCEL, 6, self.pi_gpio, self.interface.key_press),
+                Switch(Key.OK, 13, self.pi_gpio, self.interface.key_press)
+            ]
 
-        self.sensor_timers = self._get_sensor_timers(readings, interface)
+        self.sensor_timers = self._get_sensor_timers(readings, self.interface)
         for timer in self.sensor_timers.values():
             timer.start()
 
@@ -78,6 +77,7 @@ class Device:
             timer.join()
         self.config_timer.cancel()
         self.config_timer.join()
+        self.interface.close()
 
         self.database.close()
 
@@ -101,7 +101,7 @@ class Device:
             try:
                 value = sensor.get_reading(sensor_type)
                 readings.add(sensor_type, value)
-                interface.update_sensor(sensor_type)
+                # interface.update_sensor(sensor_type)
             except SensorReadingError:
                 logging.warning("SensorReadingError: %s, %s", sensor.__class__.__name__, sensor_type.name)
 

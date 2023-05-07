@@ -7,7 +7,7 @@ from luma.core.interface.serial import spi
 from PIL import ImageFont
 
 class Terminal(luma_terminal):
-    def __init__(self, device, font=None, color="white", bgcolor="black", tabstop=4, line_height=None, animate=False, word_wrap=False):
+    def __init__(self, device, font=None, color="white", bgcolor="blue", tabstop=4, line_height=None, animate=False, word_wrap=False):
         super().__init__(device, font, color, bgcolor, tabstop, line_height, animate, word_wrap)
         self.scroll = False
 
@@ -28,7 +28,7 @@ class Terminal(luma_terminal):
 
     def println(self, text="", *, highlight = False, fill = True, scroll_first = False):
         if fill:
-            text = text.ljust(self.width)
+            text = text.ljust(self.width - self.x)
         if scroll_first:
             self.scroll = True
             self.newline()
@@ -68,10 +68,20 @@ class ScreenDisplay:
         self._display.goto(0, self._display.height - 1)
         self._display.println(text, highlight=highlight, scroll_first=True)
 
-    def update_row(self, row: int, text: str, *, highlight: bool = False):
-        self._display.goto(0, row)
+    def update_row(self, row: int, text: str, *, col: int = 0, highlight: bool = False, fill: bool = True):
+        self._display.goto(col, row)
         logging.debug("row=%d, text=%s", row, text)
-        self._display.println(text, highlight=highlight)
+        self._display.println(text, highlight=highlight, fill=fill)
+
+    def foreground_color(self, value):
+        self._display.foreground_color(value)
+
+    def background_color(self, value):
+        self._display.background_color(value)
+
+    def reset(self):
+        self._display.reset()
+
 
 #pylint: disable-next=invalid-name
 def ST7789Display():

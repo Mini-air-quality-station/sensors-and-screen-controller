@@ -1,9 +1,14 @@
 from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
-from threading import Lock
-from util import SensorType, SensorReadings, Key
+from threading import RLock
+from enum import Enum
+from util import RepeatTimer, SensorType, SensorReadings, Key
 from display import ScreenDisplay
+from datetime import datetime
+import configparser
+import pytz
+import os
 
 class CallableMenuElement:
     def __init__(self, display_str: str) -> None:
@@ -12,6 +17,7 @@ class CallableMenuElement:
 
     def call(self) -> None:
         """ Do something when called from parent Menu """
+
 
 class Menu(ABC):
     def __init__(self, display_str: str):
@@ -139,15 +145,37 @@ class MenuList(Menu):
         logging.debug("start=%d\ndisplay_str=%s", self.start_row, str(display_str))
         self.display.print_lines(display_str, highlight=self._display_row(self.selected))
 
+class View(Enum):
+    DATE = 0
+    DUST = 1
+    TEMP_PRES_HUMI = 2
+    def next(self):
+        return list(self.__class__)[self.value + 1 if self.value < 2 else 0]
+
 class Interface:
     def __init__(self,*, menu: Menu, sensor_readings: SensorReadings, display: ScreenDisplay) -> None:
         self._root_menu = menu
         self._current_menu : Menu | None = None
         self._display = display
-        self._lock = Lock()
+        self._lock = RLock()
         self._root_menu.set_display(display)
         self._readings = sensor_readings
         self.show_data()
+        self.view = View.DATE
+        self.dust_view = [SensorType.PM1, SensorType.PM2_5, SensorType.PM10]
+        self.temp_view = [SensorType.TEMPERATURE, SensorType.HUMIDITY, SensorType.PRESSURE]
+        self.view_timer = RepeatTimer(3, self.next_view)
+        self.view_timer.start()
+
+    def next_view(self):
+        with self._lock:
+            if self._current_menu is None:
+                self.view = self.view.next()
+                self.display_view()
+
+    def close(self):
+        self.view_timer.cancel()
+        self.view_timer.join()
 
     def key_press(self, key: Key) -> None:
         """@brief react on pressed button"""
@@ -163,16 +191,45 @@ class Interface:
 
     def show_data(self):
         """@brief show sensor data"""
-        self._current_menu = None
-        self._display.clear()
-        for i, sensor_type in enumerate(SensorType):
-            self._display.update_row(i, f"{sensor_type.name} = {self._readings.get(sensor_type)}")
+        with self._lock:
+            self._current_menu = None
+            self.view = View.DATE
+            self.display_view()
+
+    def display_view(self):
+        with self._lock:
+            self._display.clear()
+            if self.view == View.DATE:
+                hours = datetime.now(pytz.timezone('Europe/warsaw')).strftime("%I:%M %p")
+                day_name = datetime.today().strftime('%a')
+                day = datetime.now().day
+                month = datetime.now().strftime('%b')
+                year = datetime.now().year
+                date = f"{day_name}, {day} {month} {year}"
+
+                self._display.update_row(3, hours, col=6)
+                self._display.update_row(4, date, col=4, fill=False)
+                self._display.reset()
+            elif self.view == View.DUST:
+                names = ['PM 1', 'PM 2.5', 'PM 10']
+                for i, sensor_type in enumerate(self.dust_view):
+                    self._display.update_row(i * 2 + 1, f"{names[i]} = {self._readings.get(sensor_type)} μg/m3", col=2)
+            else:
+                names = ['Temperature', 'Humidity', 'Pressure']
+                units = ['C', '%', 'hPa']
+                for i, sensor_type in enumerate(self.temp_view):
+                    self._display.update_row(i * 2 + 1, f"{names[i]} = {self._readings.get(sensor_type)} {units[i]}", col=2)
 
     def update_sensor(self, sensor_type: SensorType):
         """@brief update sensor sensor_type if currently shown on screen"""
         with self._lock:
             if self._current_menu is None:
-                self._display.update_row(SensorType.index(sensor_type), f"{sensor_type.name} = {self._readings.get(sensor_type)}")
+                if self.view == View.DUST and sensor_type in self.dust_view:
+                    self.display_view()
+                    #self._display.update_row(self.dust_view.index(sensor_type), f"{sensor_type.name} = {self._readings.get(sensor_type)}")
+                elif self.view == View.TEMP_PRES_HUMI and sensor_type in self.temp_view:
+                    self.display_view()
+                    #self._display.update_row(self.temp_view.index(sensor_type), f"{sensor_type.name} = {self._readings.get(sensor_type)}")
 
 class TickMenu(CallableMenuElement):
     def __init__(self, display_str: str, ticked: bool = False) -> None:
@@ -183,3 +240,43 @@ class TickMenu(CallableMenuElement):
     def call(self):
         self.ticked = not self.ticked
         self.display_str = f"{self.base_display_str} ✓" if self.ticked else self.base_display_str
+
+class PoweroffMenu(CallableMenuElement):
+    def __init__(self, display_str: str) -> None:
+        super().__init__(display_str)
+    
+    def call(self):
+        os.system("sudo shutdown now -h")
+
+class RebootMenu(CallableMenuElement):
+    def __init__(self, display_str: str) -> None:
+        super().__init__(display_str)
+
+    def call(self):
+        os.system("sudo reboot")
+
+class MeasurementsFrequency(CallableMenuElement):
+    def __init__(self, display_str: str, ticked: bool = False) -> None:
+        super().__init__(display_str)
+        self.base_display_str = display_str
+        self.ticked = ticked
+    
+    def call(self):
+        self.ticked = not self.ticked
+        if self.ticked:
+            self.display_str = f"{self.base_display_str} ✓"
+
+            # nie działa jak coś 
+            config = configparser.ConfigParser()
+            config['sensors_config']['humidity_dht22_freq'] = int(self.display_str[0])
+            config['sensors_config']['particle_pm1_pmsa003-c_freq'] = int(self.display_str[0])
+            config['sensors_config']['particle_pm25_pmsa003-c_freq'] = int(self.display_str[0])
+            config['sensors_config']['particle_pm10_pmsa003-c_freq'] = int(self.display_str[0])
+            config['sensors_config']['pressure_bmp280_freq'] = int(self.display_str[0])
+            config['sensors_config']['temperature_bmp280_freq'] = int(self.display_str[0])
+            config['sensors_config']['temperature_dht22_freq'] = int(self.display_str[0])
+
+            with open("/etc/mini-air-quality/sensors_config.ini", 'w') as configfile:
+                config.write(configfile)
+        else:
+            self.display_str = self.base_display_str
