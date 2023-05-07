@@ -131,7 +131,7 @@ def main():
         filename='sensor.log',
         encoding='utf-8',
     )
-    device = Device()
+    device = Device(database=Database())
     def sigint_handler(_1, _2):
         device.stop()
     signal.signal(signal.SIGINT, sigint_handler)
