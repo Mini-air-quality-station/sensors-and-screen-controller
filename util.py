@@ -1,7 +1,10 @@
 from __future__ import annotations
+from configparser import ConfigParser
 from enum import Enum, auto
 import functools
 import logging
+from pathlib import Path
+import shutil
 from threading import Lock, Timer, Condition
 from typing import Callable
 
@@ -13,31 +16,18 @@ from influxdb_client.rest import ApiException
 from urllib3.exceptions import NewConnectionError
 
 class SensorType(Enum):
-    TEMPERATURE = auto(),
-    HUMIDITY = auto(),
-    PRESSURE = auto(),
-    PM1 = auto(),
-    PM2_5 = auto(),
-    PM10 = auto()
+    TEMPERATURE = "temperature_dht22_freq"
+    HUMIDITY = "humidity_dht22_freq"
+    PRESSURE = "pressure_bmp280_freq"
+    PM1 = "particle_pm1_pmsa003-c_freq"
+    PM2_5 = "particle_pm25_pmsa003-c_freq"
+    PM10 = "particle_pm10_pmsa003-c_freq"
 
     @classmethod
     @functools.cache
     def index(cls, sensor_type: SensorType):
         """@brief Returns index of element"""
         return list(SensorType).index(sensor_type)
-
-    @classmethod
-    @functools.cache
-    def to_conf(cls, sensor_type: SensorType):
-        type_conf = {
-            SensorType.TEMPERATURE: "temperature_dht22_freq",
-            SensorType.HUMIDITY: "humidity_dht22_freq",
-            SensorType.PRESSURE: "pressure_bmp280_freq",
-            SensorType.PM1: "particle_pm1_pmsa003-c_freq",
-            SensorType.PM2_5: "particle_pm25_pmsa003-c_freq",
-            SensorType.PM10: "particle_pm10_pmsa003-c_freq",
-        }
-        return type_conf[sensor_type]
 
 
 class Key(Enum):
@@ -206,3 +196,35 @@ class Switch:
         self._edge_callback.cancel()
         self._debounce_timer.cancel()
         self._debounce_timer.join()
+
+class ConfigManager:
+    _lock = Lock()
+
+    @classmethod
+    def get_config(cls, config_file: str) -> ConfigParser:
+        config = ConfigParser()
+        with cls._lock:
+            config.read(config_file)
+        return config
+
+    @classmethod
+    def get_config_value(cls, config_file: str, config_section: str, key: str):
+        """@brief Return value of config with key=key. If key doesn't exist return None"""
+        config = cls.get_config(config_file)
+        try:
+            return str(config[config_section][key])
+        except KeyError:
+            print(f"{config_file}: Key {key} or section {config_section} doesn't exist!")
+            logging.error("%s: Key %s doesn't exist!\n", config_file, key)
+            return None
+
+    @classmethod
+    def update_config_values(cls, config_file: str, config_section: str, key_value: dict[str, str]):
+        config = cls.get_config(config_file)
+        for key, value in key_value.items():
+            config[config_section][key] = value
+        tmp_file = Path(Path(config_file).parent / f"{config_file}.replace")
+        with tmp_file.open(mode="w", encoding="utf8") as new_config_file:
+            config.write(new_config_file)
+
+        shutil.move(tmp_file, config_file)

@@ -8,8 +8,9 @@ from PIL import ImageFont
 
 class Terminal(luma_terminal):
     def __init__(self, device, font=None, color="white", bgcolor="blue", tabstop=4, line_height=None, animate=False, word_wrap=False):
-        super().__init__(device, font, color, bgcolor, tabstop, line_height, animate, word_wrap)
+        self.context_manager_depth = 0
         self.scroll = False
+        super().__init__(device, font, color, bgcolor, tabstop, line_height, animate, word_wrap)
 
     def goto(self, x: int, y: int):
         if (0 <= x < self.width) and (0 <= y < self.height):
@@ -47,11 +48,22 @@ class Terminal(luma_terminal):
             self.flush()
             self._cy += self._ch
 
+    def flush(self):
+        if self.context_manager_depth == 0:
+            super().flush()
+
 
 class ScreenDisplay:
     def __init__(self, terminal: Terminal) -> None:
         self._display = terminal
         self.rows = self._display.height
+
+    def __enter__(self):
+        self._display.context_manager_depth += 1
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._display.context_manager_depth -= 1
+        self._display.flush()
 
     def clear(self):
         self._display.clear()

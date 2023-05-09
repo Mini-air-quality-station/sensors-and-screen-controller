@@ -1,6 +1,5 @@
 #!/bin/python3
 from __future__ import annotations
-import configparser
 import signal
 import logging
 from pathlib import Path
@@ -9,9 +8,9 @@ from threading import Event
 import pigpio
 
 from display import ST7789Display, ScreenDisplay
-from sensor_menu import SENSOR_MENU
+from sensor_menu import get_menu
 from sensors import BMP280, DHT, PMSA003C, Sensor, SensorReadingError
-from util import Database, InfluxDatabase, SensorType, RepeatTimer, SensorReadings, Switch
+from util import ConfigManager, Database, InfluxDatabase, SensorType, RepeatTimer, SensorReadings, Switch
 from menu import Interface, Key
 
 class Device:
@@ -36,7 +35,11 @@ class Device:
 
     def _initialize(self):
         readings = SensorReadings(database=self.database)
-        self.interface = Interface(menu=SENSOR_MENU, sensor_readings=readings, display=self.display)
+        self.interface = Interface(
+            menu=get_menu(self.config_file, "sensors_config"),
+            sensor_readings=readings,
+            display=self.display
+        )
 
         if not self.pi_gpio.connected:
             logging.error("Pigpio not connected!")
@@ -81,14 +84,13 @@ class Device:
 
         self.database.close()
 
-    def _get_current_conf(self) -> dict[SensorType, float]:
-        config = configparser.ConfigParser()
-        config.read(self.config_file)
+    def _get_current_conf(self) -> dict[SensorType, int]:
+        config = ConfigManager.get_config(self.config_file)
         sensor_conf = {}
         for sensor_type in SensorType:
-            type_conf = SensorType.to_conf(sensor_type)
+            type_conf = sensor_type.value
             if type_conf in config['sensors_config']:
-                sensor_conf[sensor_type] = float(config['sensors_config'][type_conf])
+                sensor_conf[sensor_type] = int(config['sensors_config'][type_conf])
         return sensor_conf
 
     def _get_sensor_timers(self, readings: SensorReadings, interface: Interface):
@@ -101,7 +103,7 @@ class Device:
             try:
                 value = sensor.get_reading(sensor_type)
                 readings.add(sensor_type, value)
-                # interface.update_sensor(sensor_type)
+                interface.update_sensor(sensor_type)
             except SensorReadingError:
                 logging.warning("SensorReadingError: %s, %s", sensor.__class__.__name__, sensor_type.name)
 

@@ -3,12 +3,12 @@ import logging
 from abc import ABC, abstractmethod
 from threading import RLock
 from enum import Enum
-from util import RepeatTimer, SensorType, SensorReadings, Key
-from display import ScreenDisplay
 from datetime import datetime
 import configparser
-import pytz
 import os
+import pytz
+from util import ConfigManager, RepeatTimer, SensorType, SensorReadings, Key
+from display import ScreenDisplay
 
 class CallableMenuElement:
     def __init__(self, display_str: str) -> None:
@@ -179,7 +179,7 @@ class Interface:
 
     def key_press(self, key: Key) -> None:
         """@brief react on pressed button"""
-        with self._lock:
+        with self._lock, self._display:
             if self._current_menu is None:
                 if key is not Key.CANCEL:
                     self._current_menu = self._root_menu
@@ -197,7 +197,7 @@ class Interface:
             self.display_view()
 
     def display_view(self):
-        with self._lock:
+        with self._lock, self._display:
             self._display.clear()
             if self.view == View.DATE:
                 hours = datetime.now(pytz.timezone('Europe/warsaw')).strftime("%I:%M %p")
@@ -222,7 +222,7 @@ class Interface:
 
     def update_sensor(self, sensor_type: SensorType):
         """@brief update sensor sensor_type if currently shown on screen"""
-        with self._lock:
+        with self._lock, self._display:
             if self._current_menu is None:
                 if self.view == View.DUST and sensor_type in self.dust_view:
                     self.display_view()
@@ -254,6 +254,67 @@ class RebootMenu(CallableMenuElement):
 
     def call(self):
         os.system("sudo reboot")
+
+class FreqencyChoice(Menu):
+    def __init__(self, display_str, config_file, config_section, config_key: str, frequency_list: list[int]):
+        super().__init__("")
+
+        self.config_file = config_file
+        self.config_section = config_section
+        self.config_key = config_key
+        self.frequency_list = frequency_list
+        self.base_display_str = display_str
+        config_val = ConfigManager.get_config_value(config_file, config_section, config_key)
+        # index of current freq
+        try:
+            self.current_frequency = int(frequency_list.index(int(config_val))) if config_val else 0
+        except ValueError:
+            self.current_frequency = 0
+        self.new_frequency = self.current_frequency
+
+        self._update_display_string()
+
+    def _update_display_string(self):
+        self.display_str = f"{self.base_display_str} {self.frequency_list[self.current_frequency]}s"
+
+    def key_press(self, key: Key) -> Menu | None:
+        if key == Key.CANCEL:
+            self.new_frequency = self.current_frequency
+            if self.parent:
+                self.parent.redraw()
+            return self.parent
+        if key == Key.UP:
+            if self.new_frequency > 0:
+                self.new_frequency -= 1
+            else:
+                self.new_frequency = len(self.frequency_list) - 1 if len(self.frequency_list) else 0
+            self.redraw()
+            return self
+        if key == Key.DOWN:
+            if self.new_frequency < len(self.frequency_list) - 1:
+                self.new_frequency += 1
+            else:
+                self.new_frequency = 0
+            self.redraw()
+            return self
+        else: #Key.OK
+            self.current_frequency = self.new_frequency
+            self._update_display_string()
+            ConfigManager.update_config_values(
+                self.config_file,
+                self.config_section,
+                {self.config_key: str(self.frequency_list[self.current_frequency])}
+            )
+            if self.parent:
+                self.parent.redraw()
+            return self.parent
+
+    def redraw(self) -> None:
+        self.display.clear()
+        self.display.update_row(0, self.base_display_str)
+        self.display.update_row(4, "<", col=1)
+        self.display.update_row(4, str(self.frequency_list[self.new_frequency]), col=10)
+        self.display.update_row(4, ">", col=19)
 
 class MeasurementsFrequency(CallableMenuElement):
     def __init__(self, display_str: str, ticked: bool = False) -> None:
