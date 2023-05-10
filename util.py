@@ -1,12 +1,13 @@
 from __future__ import annotations
 from configparser import ConfigParser
+from copy import deepcopy
 from enum import Enum, auto
 import functools
 import logging
 from pathlib import Path
 import shutil
-from threading import Lock, Timer, Condition
-from typing import Callable
+from threading import Lock, RLock, Timer, Condition
+from typing import Callable, TypedDict
 
 import pigpio
 
@@ -43,7 +44,7 @@ class Database:
 
     #pylint: disable-next=unused-argument
     def get_last(self, sensor_type: SensorType) -> int | float:
-        return 0
+        return float('nan')
 
     def add(self, sensor_type: SensorType, value: int | float):
         pass
@@ -157,15 +158,36 @@ class ResettableTimer(Timer):
 class RepeatTimer(Timer):
     def __init__(self, interval: float, function: Callable[..., object], *args, **kwargs) -> None:
         super().__init__(interval, function, args, kwargs)
+        self.stop = False
+
+    def cancel(self):
+        self.stop = True
+        super().cancel()
+
+    def reset(self, new_interval = None):
+        if new_interval is not None:
+            self.interval = new_interval
+        self.finished.set()
 
     def run(self):
-        while not self.finished.wait(self.interval):
-            self.function(*self.args, **self.kwargs)
+        while not self.stop:
+            if not self.finished.wait(self.interval):
+                self.function(*self.args, **self.kwargs)
+            self.finished.clear()
 
 class Switch:
-    def __init__(self, key: Key, pin: int, pi_gpio: pigpio.pi, callback: Callable[[Key], None], debounce: float = 0.05) -> None:
+    def __init__(
+            self,
+            key: Key,
+            pin: int,
+            pi_gpio: pigpio.pi,
+            callback: Callable[[Key, bool], None],
+            debounce: float = 0.05,
+            long_push_time: float = 0.5,
+            ) -> None:
         """ Maintains current state of push button after debouncing.
-            Calls callback when button is pushed.
+            Calls callback(key, False) when button is pushed.
+            Calls callback(key, True) again when button is pushed for more than long_push_time seconds
         """
         self.key = key
         self.pin = pin
@@ -175,6 +197,8 @@ class Switch:
         self._lock = Lock()
         self._debounce_timer = ResettableTimer(debounce, self.change_state)
         self._debounce_timer.start()
+        self._long_timer = ResettableTimer(long_push_time, callback, self.key, True)
+        self._long_timer.start()
         self._edge_callback = pi_gpio.callback(pin, pigpio.EITHER_EDGE, self.edge_change)
         self.callback = callback
 
@@ -189,42 +213,98 @@ class Switch:
     def change_state(self):
         self.current_state = not self.current_state
         if self.current_state:
-            self.callback(self.key)
+            self.callback(self.key, False)
+            self._long_timer.reset()
+        else:
+            self._long_timer.stop()
 
     def clean(self):
         """@brief Call when done using switch."""
         self._edge_callback.cancel()
         self._debounce_timer.cancel()
-        self._debounce_timer.join()
+        self._long_timer.cancel()
+        self._debounce_timer.join(1)
+        self._long_timer.join(1)
 
 class ConfigManager:
-    _lock = Lock()
+    _lock = RLock()
+    class ConfigCache(TypedDict):
+        st_mtime: float
+        config: ConfigParser
+
+    # {config_file: [last_st_mtime, cached ConfigParser]}
+    _cache: dict[str, ConfigCache] = {}
 
     @classmethod
-    def get_config(cls, config_file: str) -> ConfigParser:
-        config = ConfigParser()
+    def is_cache_current(cls, config_file: str):
+        """Return true if config_file isn't cached or file was modified since last cached"""
         with cls._lock:
-            config.read(config_file)
-        return config
+            return (config_file in cls._cache
+                    and
+                    cls._cache[config_file]["st_mtime"] == Path(config_file).stat().st_mtime
+                    )
 
     @classmethod
-    def get_config_value(cls, config_file: str, config_section: str, key: str):
+    def _get_config(cls, config_file: str, internal_config: bool = False):
+        with cls._lock:
+            if (internal_config and config_file in cls._cache):
+                logging.debug("%s: cached internal config", config_file)
+            elif config_file not in cls._cache:
+                configpath = Path(config_file)
+                config = ConfigParser()
+                if configpath.exists():
+                    logging.debug("%s: loaded config: not cached", config_file)
+                    config.read(config_file)
+                else:
+                    logging.debug("%s: created empty config: config file doesn't exist", config_file)
+                    with configpath.open("w", encoding="utf-8") as fp:
+                        config.write(fp)
+                cls._cache[config_file] = {"st_mtime": configpath.stat().st_mtime, "config": config}
+            else:
+                configpath = Path(config_file)
+                st_mtime = configpath.stat().st_mtime
+                if st_mtime != cls._cache[config_file]["st_mtime"]:
+                    logging.debug("%s: loaded config: file changed", config_file)
+                    cls._cache[config_file]["st_mtime"] = st_mtime
+                    config = ConfigParser()
+                    config.read(config_file)
+                    cls._cache[config_file]["config"] = config
+                else:
+                    logging.debug("%s: cached config", config_file)
+            return cls._cache[config_file]["config"]
+
+    @classmethod
+    def get_config(cls, config_file: str, internal_config: bool = False) -> ConfigParser:
+        """
+        If config not in cache then load from file.
+        If config is in cache and is current or internal_config == True then return cache copy
+        If config file was modified after caching then reload from file
+        """
+        logging.debug("deepcopy(%s)", config_file)
+        return deepcopy(cls._get_config(config_file, internal_config))
+
+    @classmethod
+    def get_config_value(cls, config_file: str, config_section: str, key: str, internal_config: bool = False):
         """@brief Return value of config with key=key. If key doesn't exist return None"""
-        config = cls.get_config(config_file)
-        try:
-            return str(config[config_section][key])
-        except KeyError:
-            print(f"{config_file}: Key {key} or section {config_section} doesn't exist!")
-            logging.error("%s: Key %s doesn't exist!\n", config_file, key)
-            return None
+        with cls._lock:
+            config = cls._get_config(config_file, internal_config)
+            try:
+                return str(config[config_section][key])
+            except KeyError:
+                logging.error("%s: Key %s or section %s doesn't exist!\n", config_file, key, config_section)
+                return None
 
     @classmethod
-    def update_config_values(cls, config_file: str, config_section: str, key_value: dict[str, str]):
-        config = cls.get_config(config_file)
-        for key, value in key_value.items():
-            config[config_section][key] = value
+    def update_config_values(cls, config_file: str, config_section: str, key_value: dict[str, str], internal_config: bool = False):
         tmp_file = Path(Path(config_file).parent / f"{config_file}.replace")
-        with tmp_file.open(mode="w", encoding="utf8") as new_config_file:
-            config.write(new_config_file)
+        with cls._lock:
+            config = cls._get_config(config_file, internal_config)
+            if not config.has_section(config_section):
+                config.add_section(config_section)
+            for key, value in key_value.items():
+                config[config_section][key] = value
+            with tmp_file.open(mode="w", encoding="utf8") as new_config_file:
+                config.write(new_config_file)
 
-        shutil.move(tmp_file, config_file)
+            shutil.move(tmp_file, config_file)
+            cls._cache[config_file]["st_mtime"] = Path(config_file).stat().st_mtime

@@ -118,7 +118,7 @@ class PMSA003C(Sensor):
 
             if sensor_type not in self.pm:
                 raise WrongSensorType
-            tmp = self.pm[sensor_type] 
+            tmp = self.pm[sensor_type]
             if tmp is None:
                 raise SensorReadingError
 

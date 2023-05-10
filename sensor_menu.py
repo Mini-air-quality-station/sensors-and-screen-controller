@@ -1,44 +1,39 @@
-from menu import CallableMenuElement, FreqencyChoice, MenuList, TickMenu, PoweroffMenu, RebootMenu
+from menu import (
+    CONFIG_SECTION, FreqencyChoice, MenuList,
+    OnOffConfig, PoweroffMenu, RebootMenu, INTERNAL_CONFIG_FILE, INTERNAL_CONFIG_SECTION
+)
 from util import SensorType
 
-def get_menu(config_file: str, config_section: str):
-    return MenuList("", [
-        MenuList("Network", [
-            MenuList("IP", [
-                CallableMenuElement("Mask")
-            ])
-        ]),
-        MenuList("Display frequency", [
-            TickMenu("1 s"),
-            TickMenu("2 s"),
-            TickMenu("3 s"),
-            TickMenu("4 s")
-        ]),
-        MenuList("Screensaver frequency", [
-            TickMenu("1 s"),
-            TickMenu("2 s"),
-            TickMenu("3 s"),
-            TickMenu("4 s")
-        ]),
-        FreqencyChoice("Humidity Frequency", config_file, config_section, SensorType.HUMIDITY.value, [1,2,3,4,5,10]),
-        MenuList("Measurements", [
-            MenuList("Temperature", [
-                TickMenu("Yes"),
-                TickMenu("No")
+def get_menu(config_file: str):
+    return MenuList("",
+        [
+            MenuList("Measurements Period", [
+                FreqencyChoice("Humidity", config_file, CONFIG_SECTION,
+                               SensorType.HUMIDITY.value, [5,10,15,30,60,120,240]),
+                FreqencyChoice("Temperature", config_file, CONFIG_SECTION,
+                               SensorType.TEMPERATURE.value, [5,10,15,30,60,120,240]),
+                FreqencyChoice("Pressure", config_file, CONFIG_SECTION,
+                               SensorType.PRESSURE.value, [1,2,3,5,10,15,30,60,120,240]),
+                FreqencyChoice("PM1", config_file, CONFIG_SECTION,
+                               SensorType.PM1.value, [3,5,10,15,30,60,120,240]),
+                FreqencyChoice("PM2.5", config_file, CONFIG_SECTION,
+                               SensorType.PM2_5.value, [3,5,10,15,30,60,120,240]),
+                FreqencyChoice("PM10", config_file, CONFIG_SECTION,
+                               SensorType.PM10.value, [3,5,10,15,30,60,120,240]),
             ]),
-            MenuList("Humidity", [
-                TickMenu("Yes"),
-                TickMenu("No")
+            MenuList("Display Settings", [
+                FreqencyChoice("View Period", INTERNAL_CONFIG_FILE, INTERNAL_CONFIG_SECTION,
+                               "view_period", [4,5,10,20]),
+                MenuList("Show Measurements", [
+                    OnOffConfig("Temperature", SensorType.TEMPERATURE.name),
+                    OnOffConfig("Humidity", SensorType.HUMIDITY.name),
+                    OnOffConfig("Pressure", SensorType.PRESSURE.name),
+                    OnOffConfig("PM1", SensorType.PM1.name),
+                    OnOffConfig("PM2.5", SensorType.PM2_5.name),
+                    OnOffConfig("PM10", SensorType.PM10.name),
+                ]),
             ]),
-            MenuList("Pressure", [
-                TickMenu("Yes"),
-                TickMenu("No")
-            ]),
-            MenuList("PM", [
-                TickMenu("Yes"),
-                TickMenu("No")
-            ])
-        ]),
-        RebootMenu("Reboot"),
-        PoweroffMenu("Power off")
-    ])
+            RebootMenu("Reboot"),
+            PoweroffMenu("Power off")
+        ]
+    )

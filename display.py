@@ -1,5 +1,4 @@
 from __future__ import annotations
-import logging
 from typing import List
 from luma.core.virtual import terminal as luma_terminal
 from luma.lcd.device import st7789
@@ -8,6 +7,7 @@ from PIL import ImageFont
 
 class Terminal(luma_terminal):
     def __init__(self, device, font=None, color="white", bgcolor="blue", tabstop=4, line_height=None, animate=False, word_wrap=False):
+        # if > 0 then don't send image to device
         self.context_manager_depth = 0
         self.scroll = False
         super().__init__(device, font, color, bgcolor, tabstop, line_height, animate, word_wrap)
@@ -57,6 +57,7 @@ class ScreenDisplay:
     def __init__(self, terminal: Terminal) -> None:
         self._display = terminal
         self.rows = self._display.height
+        self.cols = self._display.width
 
     def __enter__(self):
         self._display.context_manager_depth += 1
@@ -82,7 +83,6 @@ class ScreenDisplay:
 
     def update_row(self, row: int, text: str, *, col: int = 0, highlight: bool = False, fill: bool = True):
         self._display.goto(col, row)
-        logging.debug("row=%d, text=%s", row, text)
         self._display.println(text, highlight=highlight, fill=fill)
 
     def foreground_color(self, value):
@@ -94,6 +94,15 @@ class ScreenDisplay:
     def reset(self):
         self._display.reset()
 
+    def turn_on(self):
+        device: st7789 = self._display._device #pylint: disable=protected-access
+        device.backlight(True)
+        device.show()
+
+    def turn_off(self):
+        device: st7789 = self._display._device #pylint: disable=protected-access
+        device.backlight(False)
+        device.hide()
 
 #pylint: disable-next=invalid-name
 def ST7789Display():

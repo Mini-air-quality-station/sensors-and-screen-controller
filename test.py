@@ -46,7 +46,7 @@ def main():
     device_thread.start()
 
     while not stop:
-        time.sleep(0.1)
+        time.sleep(0.02)
         pygame.event.pump()
         keystate = pygame.key.get_pressed()
         if keystate[pygame.K_ESCAPE] or pygame.event.peek(pygame.QUIT):

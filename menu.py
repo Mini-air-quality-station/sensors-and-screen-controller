@@ -1,14 +1,24 @@
 from __future__ import annotations
-import logging
 from abc import ABC, abstractmethod
+import logging
+import signal
 from threading import RLock
 from enum import Enum
 from datetime import datetime
-import configparser
 import os
-import pytz
+import time
 from util import ConfigManager, RepeatTimer, SensorType, SensorReadings, Key
 from display import ScreenDisplay
+
+CONFIG_SECTION = "sensors_config"
+INTERNAL_CONFIG_SECTION = "display"
+INTERNAL_CONFIG_FILE = "./config.ini"
+
+def get_internal_config_value(key: str):
+    return ConfigManager.get_config_value(INTERNAL_CONFIG_FILE,
+                                          INTERNAL_CONFIG_SECTION,
+                                          key,
+                                          True)
 
 class CallableMenuElement:
     def __init__(self, display_str: str) -> None:
@@ -48,7 +58,6 @@ class MenuList(Menu):
             element.parent = self
         self.start_row: int = 0
         self.selected: int = 0
-        #self.selected_on_display: int = self.selected
 
     def add_element(self, menu_element: Menu | CallableMenuElement):
         if isinstance(menu_element, Menu):
@@ -111,7 +120,6 @@ class MenuList(Menu):
         if key is Key.CANCEL:
             self.selected = 0
             self.start_row = 0
-            #self.selected_on_display = 0
             return_menu = self.parent
             if return_menu:
                 return_menu.redraw()
@@ -142,7 +150,6 @@ class MenuList(Menu):
             menu.display_str
             for menu in self.menu_elements[self.start_row : self.start_row + self.display.rows]
         ]
-        logging.debug("start=%d\ndisplay_str=%s", self.start_row, str(display_str))
         self.display.print_lines(display_str, highlight=self._display_row(self.selected))
 
 class View(Enum):
@@ -150,7 +157,9 @@ class View(Enum):
     DUST = 1
     TEMP_PRES_HUMI = 2
     def next(self):
-        return list(self.__class__)[self.value + 1 if self.value < 2 else 0]
+        return View(self.value + 1 if self.value < 2 else 0)
+    def prev(self):
+        return View(self.value - 1 if self.value > 0 else 2)
 
 class Interface:
     def __init__(self,*, menu: Menu, sensor_readings: SensorReadings, display: ScreenDisplay) -> None:
@@ -160,30 +169,54 @@ class Interface:
         self._lock = RLock()
         self._root_menu.set_display(display)
         self._readings = sensor_readings
-        self.show_data()
         self.view = View.DATE
         self.dust_view = [SensorType.PM1, SensorType.PM2_5, SensorType.PM10]
         self.temp_view = [SensorType.TEMPERATURE, SensorType.HUMIDITY, SensorType.PRESSURE]
-        self.view_timer = RepeatTimer(3, self.next_view)
+        view_period = get_internal_config_value("view_period")
+        view_period = int(view_period) if view_period else 3
+        self.view_timer = RepeatTimer(view_period, self.next_view)
         self.view_timer.start()
+        self.display_off = False
+        self._display.turn_on()
+        self.show_data()
 
     def next_view(self):
         with self._lock:
-            if self._current_menu is None:
+            if self._current_menu is None and not self.display_off:
                 self.view = self.view.next()
                 self.display_view()
 
     def close(self):
         self.view_timer.cancel()
-        self.view_timer.join()
+        self.view_timer.join(1)
+        self._display.clear()
+        self._display.turn_off()
 
-    def key_press(self, key: Key) -> None:
+    def key_press(self, key: Key, long_press: bool) -> None:
         """@brief react on pressed button"""
         with self._lock, self._display:
-            if self._current_menu is None:
-                if key is not Key.CANCEL:
+            if long_press:
+                if key is Key.CANCEL:
+                    self.display_off = True
+                    self._display.turn_off()
+                    while self._current_menu is not None:
+                        self._current_menu = self._current_menu.key_press(Key.CANCEL)
+            elif self.display_off:
+                self.display_off = False
+                self.show_data()
+                self._display.turn_on()
+            elif self._current_menu is None:
+                if key is Key.OK:
                     self._current_menu = self._root_menu
                     self._current_menu.redraw()
+                elif key is Key.UP:
+                    self.view = self.view.prev()
+                    self.view_timer.reset()
+                    self.display_view()
+                elif key is Key.DOWN:
+                    self.view = self.view.next()
+                    self.view_timer.reset()
+                    self.display_view()
             else:
                 self._current_menu = self._current_menu.key_press(key)
                 if self._current_menu is None:
@@ -194,31 +227,66 @@ class Interface:
         with self._lock:
             self._current_menu = None
             self.view = View.DATE
+            self.view_timer.reset(int(get_internal_config_value("view_period")))
             self.display_view()
 
     def display_view(self):
+        def get_color(value: int, colors: list[tuple[int|float, str]]):
+            last_color = colors[0][1]
+            for threshold, color in colors:
+                if value < threshold:
+                    break
+                else:
+                    last_color = color
+            return last_color
+                
         with self._lock, self._display:
             self._display.clear()
             if self.view == View.DATE:
-                hours = datetime.now(pytz.timezone('Europe/warsaw')).strftime("%I:%M %p")
+                hours = datetime.now().strftime("%I:%M %p")
                 day_name = datetime.today().strftime('%a')
                 day = datetime.now().day
                 month = datetime.now().strftime('%b')
                 year = datetime.now().year
                 date = f"{day_name}, {day} {month} {year}"
+                middle_row = int(self._display.rows/2)
 
-                self._display.update_row(3, hours, col=6)
-                self._display.update_row(4, date, col=4, fill=False)
+                self._display.update_row(middle_row - 1, hours, col=int((self._display.cols - len(hours))/2))
+                self._display.update_row(middle_row, date, col=int((self._display.cols - len(date))/2), fill=False)
                 self._display.reset()
             elif self.view == View.DUST:
-                names = ['PM 1', 'PM 2.5', 'PM 10']
-                for i, sensor_type in enumerate(self.dust_view):
-                    self._display.update_row(i * 2 + 1, f"{names[i]} = {self._readings.get(sensor_type)} μg/m3", col=2)
+                thresholds = {
+                    SensorType.PM1: ("PM1", [(float("-inf"), "green"), (7, "yellow"), (25, "red")]),
+                    SensorType.PM2_5: ("PM2.5", [(float("-inf"), "green"), (35, "yellow"), (75, "red")]),
+                    SensorType.PM10: ("PM10", [(float("-inf"), "green"), (50, "yellow"), (110, "red")])
+                }
+                show = [measurement for measurement in self.dust_view
+                        if bool(int(get_internal_config_value(measurement.name)))]
+                if not show:
+                    self.next_view()
+                    return
+                
+                for i, sensor_type in enumerate(show):
+                    value = self._readings.get(sensor_type)
+                    string = f"{thresholds[sensor_type][0]} = {value}"
+                    row = int(((i + 1) * self._display.rows / (len(show) + 1)))
+                    self._display.update_row(row, string, col=2)
+                    self._display.background_color(get_color(value, thresholds[sensor_type][1]))
+                    self._display.update_row(row, "μg/m³", col=3 + len(string), fill=False)
+                    self._display.reset()
             else:
-                names = ['Temperature', 'Humidity', 'Pressure']
-                units = ['C', '%', 'hPa']
-                for i, sensor_type in enumerate(self.temp_view):
-                    self._display.update_row(i * 2 + 1, f"{names[i]} = {self._readings.get(sensor_type)} {units[i]}", col=2)
+                units = [' °C', '%', ' hPa']
+                show = [measurement for measurement in zip(self.temp_view, units)
+                        if bool(int(get_internal_config_value(measurement[0].name)))]
+                if not show:
+                    self.next_view()
+                    return
+                for i, (sensor_type, unit) in enumerate(show):
+                    self._display.update_row(
+                        int(((i + 1) * self._display.rows / (len(show) + 1))),
+                        f"{sensor_type.name.capitalize()} = {self._readings.get(sensor_type)}{unit}",
+                        col=2
+                    )
 
     def update_sensor(self, sensor_type: SensorType):
         """@brief update sensor sensor_type if currently shown on screen"""
@@ -226,33 +294,42 @@ class Interface:
             if self._current_menu is None:
                 if self.view == View.DUST and sensor_type in self.dust_view:
                     self.display_view()
-                    #self._display.update_row(self.dust_view.index(sensor_type), f"{sensor_type.name} = {self._readings.get(sensor_type)}")
                 elif self.view == View.TEMP_PRES_HUMI and sensor_type in self.temp_view:
                     self.display_view()
-                    #self._display.update_row(self.temp_view.index(sensor_type), f"{sensor_type.name} = {self._readings.get(sensor_type)}")
 
-class TickMenu(CallableMenuElement):
-    def __init__(self, display_str: str, ticked: bool = False) -> None:
-        super().__init__(display_str)
+class OnOffConfig(CallableMenuElement):
+    def __init__(self, display_str: str, config_value) -> None:
         self.base_display_str = display_str
-        self.ticked = ticked
+        self.config_value = config_value
+        on_off = get_internal_config_value(config_value)
+        if on_off is None:
+            self.on_off = True
+            ConfigManager.update_config_values(INTERNAL_CONFIG_FILE,
+                                               INTERNAL_CONFIG_SECTION,
+                                               {config_value: str(int(True))},
+                                               True)
+        else:
+            self.on_off = bool(int(on_off))
+        super().__init__(f"{display_str}: {'ON' if self.on_off else 'OFF'}")
 
     def call(self):
-        self.ticked = not self.ticked
-        self.display_str = f"{self.base_display_str} ✓" if self.ticked else self.base_display_str
+        self.on_off = not self.on_off
+        ConfigManager.update_config_values(INTERNAL_CONFIG_FILE,
+                                           INTERNAL_CONFIG_SECTION,
+                                           {self.config_value: str(int(self.on_off))},
+                                           True)
+        self.display_str = f"{self.base_display_str}: {'ON' if self.on_off else 'OFF'}"
 
 class PoweroffMenu(CallableMenuElement):
-    def __init__(self, display_str: str) -> None:
-        super().__init__(display_str)
-    
     def call(self):
+        signal.raise_signal(signal.SIGINT)
+        time.sleep(2.5)
         os.system("sudo shutdown now -h")
 
 class RebootMenu(CallableMenuElement):
-    def __init__(self, display_str: str) -> None:
-        super().__init__(display_str)
-
     def call(self):
+        signal.raise_signal(signal.SIGINT)
+        time.sleep(2.5)
         os.system("sudo reboot")
 
 class FreqencyChoice(Menu):
@@ -265,17 +342,18 @@ class FreqencyChoice(Menu):
         self.frequency_list = frequency_list
         self.base_display_str = display_str
         config_val = ConfigManager.get_config_value(config_file, config_section, config_key)
-        # index of current freq
         try:
+            # index of current freq
             self.current_frequency = int(frequency_list.index(int(config_val))) if config_val else 0
         except ValueError:
+            logging.warning("%s: [%s][%s] error", config_file, config_section, config_key)
             self.current_frequency = 0
         self.new_frequency = self.current_frequency
 
         self._update_display_string()
 
     def _update_display_string(self):
-        self.display_str = f"{self.base_display_str} {self.frequency_list[self.current_frequency]}s"
+        self.display_str = f"{self.base_display_str}: {self.frequency_list[self.current_frequency]}s"
 
     def key_press(self, key: Key) -> Menu | None:
         if key == Key.CANCEL:
@@ -312,32 +390,6 @@ class FreqencyChoice(Menu):
     def redraw(self) -> None:
         self.display.clear()
         self.display.update_row(0, self.base_display_str)
-        self.display.update_row(4, "<", col=1)
-        self.display.update_row(4, str(self.frequency_list[self.new_frequency]), col=10)
-        self.display.update_row(4, ">", col=19)
-
-class MeasurementsFrequency(CallableMenuElement):
-    def __init__(self, display_str: str, ticked: bool = False) -> None:
-        super().__init__(display_str)
-        self.base_display_str = display_str
-        self.ticked = ticked
-    
-    def call(self):
-        self.ticked = not self.ticked
-        if self.ticked:
-            self.display_str = f"{self.base_display_str} ✓"
-
-            # nie działa jak coś 
-            config = configparser.ConfigParser()
-            config['sensors_config']['humidity_dht22_freq'] = int(self.display_str[0])
-            config['sensors_config']['particle_pm1_pmsa003-c_freq'] = int(self.display_str[0])
-            config['sensors_config']['particle_pm25_pmsa003-c_freq'] = int(self.display_str[0])
-            config['sensors_config']['particle_pm10_pmsa003-c_freq'] = int(self.display_str[0])
-            config['sensors_config']['pressure_bmp280_freq'] = int(self.display_str[0])
-            config['sensors_config']['temperature_bmp280_freq'] = int(self.display_str[0])
-            config['sensors_config']['temperature_dht22_freq'] = int(self.display_str[0])
-
-            with open("/etc/mini-air-quality/sensors_config.ini", 'w') as configfile:
-                config.write(configfile)
-        else:
-            self.display_str = self.base_display_str
+        self.display.update_row(1, "^", col=2)
+        self.display.update_row(2, f"{self.frequency_list[self.new_frequency]}s".rjust(4))
+        self.display.update_row(3, "v", col=2)

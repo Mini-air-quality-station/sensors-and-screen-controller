@@ -36,7 +36,7 @@ class Device:
     def _initialize(self):
         readings = SensorReadings(database=self.database)
         self.interface = Interface(
-            menu=get_menu(self.config_file, "sensors_config"),
+            menu=get_menu(self.config_file),
             sensor_readings=readings,
             display=self.display
         )
@@ -46,7 +46,7 @@ class Device:
         else:
             self.switches = [
                 Switch(Key.UP, 5, self.pi_gpio, self.interface.key_press),
-                Switch(Key.DOWN, 19, self.pi_gpio, self.interface.key_press),
+                Switch(Key.DOWN, 19, self.pi_gpio, self.interface.key_press, long_push_time=0.5),
                 Switch(Key.CANCEL, 6, self.pi_gpio, self.interface.key_press),
                 Switch(Key.OK, 13, self.pi_gpio, self.interface.key_press)
             ]
@@ -58,9 +58,7 @@ class Device:
         self.config_timer.start()
 
     def _update_freq(self):
-        stats = Path(self.config_file).stat()
-        if stats.st_mtime != self.last_mtime:
-            self.last_mtime = stats.st_mtime
+        if not ConfigManager.is_cache_current(self.config_file):
             for sensor_type, new_freq in self._get_current_conf().items():
                 self.sensor_timers[sensor_type].interval = new_freq
 
@@ -75,13 +73,12 @@ class Device:
     def close(self):
         for switch in self.switches:
             switch.clean()
+        self.config_timer.cancel()
+        self.config_timer.join(1)
         for timer in self.sensor_timers.values():
             timer.cancel()
-            timer.join()
-        self.config_timer.cancel()
-        self.config_timer.join()
+            timer.join(1)
         self.interface.close()
-
         self.database.close()
 
     def _get_current_conf(self) -> dict[SensorType, int]:
@@ -107,22 +104,16 @@ class Device:
             except SensorReadingError:
                 logging.warning("SensorReadingError: %s, %s", sensor.__class__.__name__, sensor_type.name)
 
-        #pylint: disable=invalid-name
-        HUMIDITY = SensorType.HUMIDITY
-        TEMPERATURE = SensorType.TEMPERATURE
-        PRESSURE = SensorType.PRESSURE
-        PM1 = SensorType.PM1
-        PM2_5 = SensorType.PM2_5
-        PM10 = SensorType.PM10
-        #pylint: enable=invalid-name
-
+        def get_timer(sensor, sensor_type, default_value):
+            return RepeatTimer(start_conf.get(sensor_type, default_value), update_reading, sensor, sensor_type)
+        
         return {
-            HUMIDITY: RepeatTimer(start_conf.get(HUMIDITY, 10), update_reading, dht, HUMIDITY),
-            TEMPERATURE: RepeatTimer(start_conf.get(TEMPERATURE, 10), update_reading, dht, TEMPERATURE),
-            PRESSURE: RepeatTimer(start_conf.get(PRESSURE, 10), update_reading, bmp, PRESSURE),
-            PM1: RepeatTimer(start_conf.get(PM1, 10), update_reading, pmsa, PM1),
-            PM2_5: RepeatTimer(start_conf.get(PM2_5, 10), update_reading, pmsa, PM2_5),
-            PM10: RepeatTimer(start_conf.get(PM10, 10), update_reading, pmsa, PM10),
+            SensorType.HUMIDITY: get_timer(dht, SensorType.HUMIDITY, 10),
+            SensorType.TEMPERATURE: get_timer(dht, SensorType.HUMIDITY, 10),
+            SensorType.PRESSURE: get_timer(bmp, SensorType.HUMIDITY, 10),
+            SensorType.PM1: get_timer(pmsa, SensorType.HUMIDITY, 10),
+            SensorType.PM2_5: get_timer(pmsa, SensorType.HUMIDITY, 10),
+            SensorType.PM10: get_timer(pmsa, SensorType.HUMIDITY, 10),
         }
 
 def main():
@@ -133,11 +124,15 @@ def main():
         filename='sensor.log',
         encoding='utf-8',
     )
-    device = Device(database=Database())
+    device = Device()
     def sigint_handler(_1, _2):
         device.stop()
     signal.signal(signal.SIGINT, sigint_handler)
-    device.run()
+    try:
+        device.run()
+    except Exception: #pylint: disable=broad-except
+        logging.exception("device.run()")
+        device.stop()
 
 if __name__ == "__main__":
     main()
