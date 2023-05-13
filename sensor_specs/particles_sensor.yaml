@@ -4,10 +4,15 @@ sensors:
     measure_unit: μg/m³
     measure_freq_unit: s # Seconds
     measure_freq_caps: #TODO: Update caps when discussed
-      - 1
-      - 2
       - 3
-    default_measure_freq: 2
+      - 5
+      - 10
+      - 15
+      - 30
+      - 60
+      - 120
+      - 240
+    default_measure_freq: 5
     env_name: PARTICLE_PM1_PMSA003-C_FREQ
     active: true
   - name: Particle sensor PM2.5
@@ -15,10 +20,15 @@ sensors:
     measure_unit: μg/m³
     measure_freq_unit: s # Seconds
     measure_freq_caps: #TODO: Update caps when discussed
-      - 1
-      - 2
       - 3
-    default_measure_freq: 2
+      - 5
+      - 10
+      - 15
+      - 30
+      - 60
+      - 120
+      - 240
+    default_measure_freq: 5
     env_name: PARTICLE_PM25_PMSA003-C_FREQ
     active: true
   - name: Particle sensor PM10
@@ -26,9 +36,14 @@ sensors:
     measure_unit: μg/m³
     measure_freq_unit: s # Seconds
     measure_freq_caps: #TODO: Update caps when discussed
-      - 1
-      - 2
       - 3
-    default_measure_freq: 2
+      - 5
+      - 10
+      - 15
+      - 30
+      - 60
+      - 120
+      - 240
+    default_measure_freq: 5
     env_name: PARTICLE_PM10_PMSA003-C_FREQ
     active: true

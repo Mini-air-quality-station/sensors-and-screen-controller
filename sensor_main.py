@@ -1,5 +1,6 @@
 #!/bin/python3
 from __future__ import annotations
+from logging.handlers import RotatingFileHandler
 import signal
 import logging
 from pathlib import Path
@@ -106,23 +107,22 @@ class Device:
 
         def get_timer(sensor, sensor_type, default_value):
             return RepeatTimer(start_conf.get(sensor_type, default_value), update_reading, sensor, sensor_type)
-        
+
         return {
             SensorType.HUMIDITY: get_timer(dht, SensorType.HUMIDITY, 10),
-            SensorType.TEMPERATURE: get_timer(dht, SensorType.HUMIDITY, 10),
-            SensorType.PRESSURE: get_timer(bmp, SensorType.HUMIDITY, 10),
-            SensorType.PM1: get_timer(pmsa, SensorType.HUMIDITY, 10),
-            SensorType.PM2_5: get_timer(pmsa, SensorType.HUMIDITY, 10),
-            SensorType.PM10: get_timer(pmsa, SensorType.HUMIDITY, 10),
+            SensorType.TEMPERATURE: get_timer(dht, SensorType.TEMPERATURE, 10),
+            SensorType.PRESSURE: get_timer(bmp, SensorType.PRESSURE, 10),
+            SensorType.PM1: get_timer(pmsa, SensorType.PM1, 10),
+            SensorType.PM2_5: get_timer(pmsa, SensorType.PM2_5, 10),
+            SensorType.PM10: get_timer(pmsa, SensorType.PM10, 10),
         }
 
 def main():
     logging.basicConfig(
         format='%(asctime)s %(levelname)-8s %(message)s',
-        level=logging.DEBUG,
+        level=logging.WARNING,
         datefmt='%Y-%m-%d %H:%M:%S',
-        filename='sensor.log',
-        encoding='utf-8',
+        handlers=[RotatingFileHandler("sensor.log", encoding="utf-8", backupCount=2, maxBytes=1_000_000)]
     )
     device = Device()
     def sigint_handler(_1, _2):

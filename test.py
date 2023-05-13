@@ -25,7 +25,7 @@ def main():
     emulator = PygameEmulator(320, 240, rotate=0)
     keyboard = KeyboardMock()
     device = Device(
-        config_file="sensors_config.ini",
+        config_file="sensor_specs/sensors_config.ini",
         pi_gpio=PigpioWrapper(keyboard),
         #database=Database(),
         display=ScreenDisplay(
@@ -94,7 +94,7 @@ class KeyboardMock:
 
     def read(self, pin):
         return pygame.key.get_pressed()[PIN_TO_KEY[pin]] if pin in PIN_TO_KEY else 0
-    
+
     def callback(self, pin, edge, func):
         if pin not in PIN_TO_KEY:
             raise NotImplementedError

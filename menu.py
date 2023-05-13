@@ -256,9 +256,9 @@ class Interface:
                 self._display.reset()
             elif self.view == View.DUST:
                 thresholds = {
-                    SensorType.PM1: ("PM1", [(float("-inf"), "green"), (7, "yellow"), (25, "red")]),
-                    SensorType.PM2_5: ("PM2.5", [(float("-inf"), "green"), (35, "yellow"), (75, "red")]),
-                    SensorType.PM10: ("PM10", [(float("-inf"), "green"), (50, "yellow"), (110, "red")])
+                    SensorType.PM1: ("PM1", [(float("-inf"), "green"), (7, "orange"), (25, "red")]),
+                    SensorType.PM2_5: ("PM2.5", [(float("-inf"), "green"), (35, "orange"), (75, "red")]),
+                    SensorType.PM10: ("PM10", [(float("-inf"), "green"), (50, "orange"), (110, "red")])
                 }
                 show = [measurement for measurement in self.dust_view
                         if bool(int(get_internal_config_value(measurement.name)))]
@@ -268,11 +268,11 @@ class Interface:
                 
                 for i, sensor_type in enumerate(show):
                     value = self._readings.get(sensor_type)
-                    string = f"{thresholds[sensor_type][0]} = {value}"
+                    string = f"{thresholds[sensor_type][0]} ="
                     row = int(((i + 1) * self._display.rows / (len(show) + 1)))
                     self._display.update_row(row, string, col=2)
                     self._display.background_color(get_color(value, thresholds[sensor_type][1]))
-                    self._display.update_row(row, "μg/m³", col=3 + len(string), fill=False)
+                    self._display.update_row(row, f"{value} μg/m³", col=3 + len(string), fill=False)
                     self._display.reset()
             else:
                 units = [' °C', '%', ' hPa']
