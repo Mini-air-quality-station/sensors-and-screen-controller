@@ -296,7 +296,8 @@ class ConfigManager:
 
     @classmethod
     def update_config_values(cls, config_file: str, config_section: str, key_value: dict[str, str], internal_config: bool = False):
-        tmp_file = Path(Path(config_file).parent / f"{config_file}.replace")
+        conf_path = Path(config_file)
+        tmp_file = Path(conf_path.parent / f"{conf_path.name}.replace")
         with cls._lock:
             config = cls._get_config(config_file, internal_config)
             if not config.has_section(config_section):

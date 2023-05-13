@@ -122,6 +122,9 @@ class PygameEmulator(luma_pygame):
         self.quit = False
         self._lock = Lock()
 
+    def backlight(self, on_off):
+        pass
+
     def get_pygame(self):
         return self._pygame
 
