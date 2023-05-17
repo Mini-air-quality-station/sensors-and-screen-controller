@@ -4,13 +4,12 @@ from __future__ import annotations
 from logging.handlers import RotatingFileHandler
 import signal
 import logging
-from pathlib import Path
 from threading import Event
 import pigpio
 from display import ST7789Display, ScreenDisplay
 from sensor_menu import get_menu
 from sensors import BMP280, DHT, PMSA003C, Sensor, SensorReadingError
-from util import ConfigManager, Database, InfluxDatabase, SensorType, RepeatTimer, SensorReadings, Switch
+from util import ConfigManager, InfluxDatabase, SensorType, RepeatTimer, SensorReadings, Switch
 from menu import Interface, Key
 
 class Device:
@@ -18,17 +17,13 @@ class Device:
         self,
         *,
         display: ScreenDisplay | None = None,
-        config_file: str = "/etc/mini-air-quality/sensors_config.ini",
-        pi_gpio: pigpio.pi = pigpio.pi(),
-        database: Database | None = None,
+        pi_gpio = pigpio.pi(),
     ) -> None:
-        self.database = database or InfluxDatabase()
+        self.database = InfluxDatabase()
         self.pi_gpio = pi_gpio
-        self.config_file = config_file
         self.stop_event = Event()
         self.display = display or ST7789Display()
         self.switches: list[Switch] = []
-        self.last_mtime = Path(self.config_file).stat().st_mtime
         self.sensor_timers: dict[SensorType, RepeatTimer] = {}
         self.config_timer: RepeatTimer = RepeatTimer(10, self._update_freq)
         self.interface: None | Interface = None
@@ -36,7 +31,7 @@ class Device:
     def _initialize(self):
         readings = SensorReadings(database=self.database)
         self.interface = Interface(
-            menu=get_menu(self.config_file),
+            menu=get_menu(),
             sensor_readings=readings,
             display=self.display
         )
@@ -58,7 +53,7 @@ class Device:
         self.config_timer.start()
 
     def _update_freq(self):
-        if not ConfigManager.is_cache_current(self.config_file):
+        if not ConfigManager.is_cache_current(display_config=False):
             for sensor_type, new_freq in self._get_current_conf().items():
                 self.sensor_timers[sensor_type].interval = new_freq
 
@@ -82,7 +77,7 @@ class Device:
         self.database.close()
 
     def _get_current_conf(self) -> dict[SensorType, int]:
-        config = ConfigManager.get_config(self.config_file)
+        config = ConfigManager.get_config(display_config=False)
         sensor_conf = {}
         for sensor_type in SensorType:
             type_conf = sensor_type.value

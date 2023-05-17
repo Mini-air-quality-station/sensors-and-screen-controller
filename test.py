@@ -8,6 +8,7 @@ from luma.emulator.device import pygame as luma_pygame
 from PIL import ImageFont
 from display import ScreenDisplay, Terminal
 from sensor_main import Device
+from util import CONFIG, ConfigManager, FileLock
 
 def main():
     logging.basicConfig(
@@ -17,11 +18,16 @@ def main():
         filename='sensor.log',
         encoding='utf-8',
     )
+    CONFIG["config_file"] = "sensor_specs/sensors_config.ini"
+    CONFIG["config_lock"] = "sensor_specs/envs.lock"
+    #pylint: disable=protected-access
+    ConfigManager._config_cache["config_file"] = "sensor_specs/sensors_config.ini"
+    ConfigManager._config_cache["file_lock"] = FileLock("sensor_specs/envs.lock")
+    #pylint: enable=protected-access
     pygame.init()
     emulator = PygameEmulator(320, 240, rotate=0)
     keyboard = PigpioWrapper()
     device = Device(
-        config_file="sensor_specs/sensors_config.ini",
         pi_gpio=keyboard,
         display=ScreenDisplay(
             terminal=Terminal(
@@ -72,35 +78,35 @@ class Callback:
         self.edge = edge
         self.last_state = state
 
-    def cancel(self):
+    def cancel(self) -> None:
         self.remove_self(self)
 
-    def change_state(self):
+    def change_state(self) -> None:
         self.last_state = not self.last_state
         self.func(self.pin, self.last_state, 0)
 
 
 class PigpioWrapper:
-    def __init__(self):
+    def __init__(self) -> None:
         self.connected = True
         self.callbacks: list[Callback] = []
 
-    def set_mode(self, _pin, _mode):
+    def set_mode(self, _pin, _mode) -> None:
         pass
-    def set_pull_up_down(self, _pin, _pull):
+    def set_pull_up_down(self, _pin, _pull) -> None:
         pass
 
-    def read(self, pin):
-        return pygame.key.get_pressed()[PIN_TO_KEY[pin]] if pin in PIN_TO_KEY else 0
+    def read(self, pin) -> bool:
+        return pygame.key.get_pressed()[PIN_TO_KEY[pin]] if pin in PIN_TO_KEY else False
 
-    def callback(self, pin, edge, func):
+    def callback(self, pin, edge, func) -> Callback:
         if pin not in PIN_TO_KEY:
             raise NotImplementedError
         new_callback = Callback(func, self._remove_callback, edge, pin, self.read(pin))
         self.callbacks.append(new_callback)
         return new_callback
 
-    def _remove_callback(self, _callback: Callback):
+    def _remove_callback(self, _callback: Callback) -> None:
         try:
             self.callbacks.remove(_callback)
         except ValueError:

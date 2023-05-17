@@ -10,16 +10,6 @@ import time
 from util import ConfigManager, RepeatTimer, SensorType, SensorReadings, Key
 from display import ScreenDisplay
 
-CONFIG_SECTION = "sensors_config"
-INTERNAL_CONFIG_SECTION = "display_config"
-INTERNAL_CONFIG_FILE = "./display_config.ini"
-
-def get_internal_config_value(key: str):
-    return ConfigManager.get_config_value(INTERNAL_CONFIG_FILE,
-                                          INTERNAL_CONFIG_SECTION,
-                                          key,
-                                          True)
-
 
 class CallableMenuElement:
     def __init__(self, display_str: str) -> None:
@@ -176,7 +166,7 @@ class Interface:
         self.view = View.DATE
         self.dust_view = [SensorType.PM1, SensorType.PM2_5, SensorType.PM10]
         self.temp_view = [SensorType.TEMPERATURE, SensorType.HUMIDITY, SensorType.PRESSURE]
-        view_period = get_internal_config_value("view_period")
+        view_period: int | str | None = ConfigManager.get_config_value("view_period", display_config=True)
         view_period = int(view_period) if view_period else 3
         self.view_timer = RepeatTimer(view_period, self.next_view)
         self.view_timer.start()
@@ -231,7 +221,7 @@ class Interface:
         with self._lock:
             self._current_menu = None
             self.view = View.DATE
-            self.view_timer.reset(int(get_internal_config_value("view_period")))
+            self.view_timer.reset(int(ConfigManager.get_config_value("view_period", display_config=True)))
             self.display_view()
 
     def display_view(self):
@@ -265,7 +255,7 @@ class Interface:
                     SensorType.PM10: ("PM10", [(float("-inf"), "green"), (50, "orange"), (110, "red")])
                 }
                 show = [measurement for measurement in self.dust_view
-                        if bool(int(get_internal_config_value(measurement.name)))]
+                        if bool(int(ConfigManager.get_config_value(measurement.name, display_config=True)))]
                 if not show:
                     self.next_view()
                     return
@@ -281,7 +271,7 @@ class Interface:
             else:
                 units = [' °C', '%', ' hPa']
                 show = [measurement for measurement in zip(self.temp_view, units)
-                        if bool(int(get_internal_config_value(measurement[0].name)))]
+                        if bool(int(ConfigManager.get_config_value(measurement[0].name, display_config=True)))]
                 if not show:
                     self.next_view()
                     return
@@ -306,23 +296,17 @@ class OnOffConfig(CallableMenuElement):
     def __init__(self, display_str: str, config_value) -> None:
         self.base_display_str = display_str
         self.config_value = config_value
-        on_off = get_internal_config_value(config_value)
+        on_off = ConfigManager.get_config_value(config_value, display_config=True)
         if on_off is None:
             self.on_off = True
-            ConfigManager.update_config_values(INTERNAL_CONFIG_FILE,
-                                               INTERNAL_CONFIG_SECTION,
-                                               {config_value: str(int(True))},
-                                               True)
+            ConfigManager.update_config_values({config_value: str(int(True))}, display_config=True)
         else:
             self.on_off = bool(int(on_off))
         super().__init__(f"{display_str}: {'ON' if self.on_off else 'OFF'}")
 
     def call(self):
         self.on_off = not self.on_off
-        ConfigManager.update_config_values(INTERNAL_CONFIG_FILE,
-                                           INTERNAL_CONFIG_SECTION,
-                                           {self.config_value: str(int(self.on_off))},
-                                           True)
+        ConfigManager.update_config_values({self.config_value: str(int(self.on_off))}, display_config=True)
         self.display_str = f"{self.base_display_str}: {'ON' if self.on_off else 'OFF'}"
 
 
@@ -341,20 +325,18 @@ class RebootMenu(CallableMenuElement):
 
 
 class FreqencyChoice(Menu):
-    def __init__(self, display_str, config_file, config_section, config_key: str, frequency_list: list[int]):
+    def __init__(self, display_str: str, display_config: bool, config_key: str, frequency_list: list[int]):
         super().__init__("")
-
-        self.config_file = config_file
-        self.config_section = config_section
         self.config_key = config_key
         self.frequency_list = frequency_list
         self.base_display_str = display_str
-        config_val = ConfigManager.get_config_value(config_file, config_section, config_key)
+        self.display_config = display_config
+        config_val = ConfigManager.get_config_value(config_key, display_config=display_config)
         try:
             # index of current freq
             self.current_frequency = int(frequency_list.index(int(config_val))) if config_val else 0
         except ValueError:
-            logging.warning("%s: [%s][%s] error", config_file, config_section, config_key)
+            logging.warning("%s: Config value not present in list!", config_key)
             self.current_frequency = 0
         self.new_frequency = self.current_frequency
 
@@ -387,9 +369,8 @@ class FreqencyChoice(Menu):
             self.current_frequency = self.new_frequency
             self._update_display_string()
             ConfigManager.update_config_values(
-                self.config_file,
-                self.config_section,
-                {self.config_key: str(self.frequency_list[self.current_frequency])}
+                {self.config_key: str(self.frequency_list[self.current_frequency])},
+                display_config=self.display_config
             )
             if self.parent:
                 self.parent.redraw()

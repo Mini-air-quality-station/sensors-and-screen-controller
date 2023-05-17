@@ -1,20 +1,28 @@
 from __future__ import annotations
 from configparser import ConfigParser
+from contextlib import AbstractContextManager, nullcontext
 from copy import deepcopy
 from enum import Enum, auto
+import fcntl
 import functools
+from io import TextIOWrapper
 import logging
 from pathlib import Path
-import shutil
 from threading import Lock, RLock, Timer, Condition
 from typing import Callable, TypedDict
-
 import pigpio
-
 import influxdb_client
 from influxdb_client.client.write_api import SYNCHRONOUS
 from influxdb_client.rest import ApiException
 from urllib3.exceptions import NewConnectionError
+
+CONFIG = {
+    "config_file": "/etc/mini-air-quality/sensors_config.ini",
+    "config_section": "sensors_config",
+    "config_lock": "/etc/mini-air-quality/envs.lock",
+    "display_config_file": "./display_config.ini",
+    "display_config_section": "display_config",
+}
 
 class SensorType(Enum):
     TEMPERATURE = "temperature_dht22_freq"
@@ -38,18 +46,7 @@ class Key(Enum):
     CANCEL = auto()
 
 
-class Database:
-    def close(self) -> None:
-        pass
-
-    def get_last(self, _sensor_type: SensorType) -> int | float:
-        return float('nan')
-
-    def add(self, _sensor_type: SensorType, value: int | float) -> None:
-        pass
-
-
-class InfluxDatabase(Database):
+class InfluxDatabase:
     def __init__(self) -> None:
         self._lock = Lock()
 
@@ -101,7 +98,7 @@ class InfluxDatabase(Database):
 
 
 class SensorReadings:
-    def __init__(self, database: Database) -> None:
+    def __init__(self, database: InfluxDatabase) -> None:
         self.readings = {
             SensorType.TEMPERATURE: database.get_last(SensorType.TEMPERATURE),
             SensorType.HUMIDITY: database.get_last(SensorType.HUMIDITY),
@@ -230,86 +227,133 @@ class Switch:
         self._long_timer.join(1)
 
 
+class FileLock:
+    def __init__(self, lock_filepath: str) -> None:
+        self.depth = 0
+        self.lock_filepath = lock_filepath
+        self.lock_file: TextIOWrapper | None = None
+
+    def __enter__(self) -> None:
+        if self.depth == 0:
+            self.lock_file = open(self.lock_filepath, "w", encoding="utf-8")
+            try:
+                fcntl.flock(self.lock_file, fcntl.LOCK_EX)
+            except:
+                self.lock_file.close()
+                self.lock_file = None
+                raise
+        self.depth += 1
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.depth -= 1
+        if self.depth == 0:
+            assert isinstance(self.lock_file, TextIOWrapper)
+            try:
+                fcntl.flock(self.lock_file, fcntl.LOCK_UN)
+            finally:
+                self.lock_file.close()
+                self.lock_file = None
+
 class ConfigManager:
-    _lock = RLock()
     class ConfigCache(TypedDict):
+        config_file: str
+        file_lock: AbstractContextManager
         st_mtime: float
-        config: ConfigParser
+        config: ConfigParser | None
 
-    # {config_file: [last_st_mtime, cached ConfigParser]}
-    _cache: dict[str, ConfigCache] = {}
+
+    _lock = RLock()
+    _config_cache: ConfigCache = {
+        "config_file": CONFIG["config_file"],
+        "file_lock": FileLock(CONFIG["config_lock"]),
+        "st_mtime": float('-inf'),
+        "config": None
+        }
+    _display_cache: ConfigCache = {
+        "config_file": CONFIG["display_config_file"],
+        "file_lock": nullcontext(),
+        "st_mtime": float('-inf'),
+        "config": None
+        }
 
     @classmethod
-    def is_cache_current(cls, config_file: str) -> bool:
-        """Return true if config_file isn't cached or file was modified since last cached"""
+    def is_cache_current(cls, *, display_config: bool) -> bool:
+        """Return False if config isn't cached or file was modified since last cached"""
         with cls._lock:
-            return (config_file in cls._cache
-                    and
-                    cls._cache[config_file]["st_mtime"] == Path(config_file).stat().st_mtime
-                    )
+            cache = cls._display_cache if display_config else cls._config_cache
+            return cache["config"] is not None and cache["st_mtime"] == Path(cache["config_file"]).stat().st_mtime
 
     @classmethod
-    def _get_config(cls, config_file: str, internal_config: bool = False) -> ConfigParser:
+    def _get_config(cls, *, display_config: bool) -> ConfigParser:
         with cls._lock:
-            if (internal_config and config_file in cls._cache):
-                logging.debug("%s: cached internal config", config_file)
-            elif config_file not in cls._cache:
-                configpath = Path(config_file)
+            if display_config and cls._display_cache["config"]:
+                logging.debug("%s: cached display config", cls._display_cache["config_file"])
+                return cls._display_cache["config"]
+            cache = cls._display_cache if display_config else cls._config_cache
+            config_file = cache["config_file"]
+            configpath = Path(config_file)
+            config = cache["config"]
+            if config is None:
                 config = ConfigParser()
-                if configpath.exists():
-                    logging.debug("%s: loaded config: not cached", config_file)
+                with cache["file_lock"]:
                     config.read(config_file)
-                else:
-                    logging.debug("%s: created empty config: config file doesn't exist", config_file)
-                    with configpath.open("w", encoding="utf-8") as fp:
-                        config.write(fp)
-                cls._cache[config_file] = {"st_mtime": configpath.stat().st_mtime, "config": config}
+                logging.debug("%s: loaded config: not cached", config_file)
+                cache["st_mtime"] = configpath.stat().st_mtime
+                cache["config"] = config
             else:
-                configpath = Path(config_file)
                 st_mtime = configpath.stat().st_mtime
-                if st_mtime != cls._cache[config_file]["st_mtime"]:
+                if st_mtime != cache["st_mtime"]:
                     logging.debug("%s: loaded config: file changed", config_file)
-                    cls._cache[config_file]["st_mtime"] = st_mtime
+                    cache["st_mtime"] = st_mtime
                     config = ConfigParser()
-                    config.read(config_file)
-                    cls._cache[config_file]["config"] = config
+                    with cache["file_lock"]:
+                        config.read(config_file)
+                    cache["config"] = config
                 else:
                     logging.debug("%s: cached config", config_file)
-            return cls._cache[config_file]["config"]
+            return config
 
     @classmethod
-    def get_config(cls, config_file: str, internal_config: bool = False) -> ConfigParser:
+    def get_config(cls, *, display_config: bool) -> ConfigParser:
         """
         If config not in cache then load from file.
         If config is in cache and is current or internal_config == True then return cache copy
         If config file was modified after caching then reload from file
         """
-        logging.debug("deepcopy(%s)", config_file)
-        return deepcopy(cls._get_config(config_file, internal_config))
+        logging.debug("deepcopy(display_config=%s)", display_config)
+        try:
+            config = cls._get_config(display_config=display_config)
+        except OSError:
+            logging.exception("_get_config exception")
+            config = ConfigParser()
+        return deepcopy(config)
 
     @classmethod
-    def get_config_value(cls, config_file: str, config_section: str, key: str, internal_config: bool = False) -> str | None:
+    def get_config_value(cls, key: str, *, display_config: bool) -> str | None:
         """@brief Return value of config with key=key. If key doesn't exist return None"""
+        config_section = CONFIG["display_config_section"] if display_config else CONFIG["config_section"]
         with cls._lock:
-            config = cls._get_config(config_file, internal_config)
             try:
+                config = cls._get_config(display_config=display_config)
                 return str(config[config_section][key])
             except KeyError:
-                logging.error("%s: Key %s or section %s doesn't exist!\n", config_file, key, config_section)
+                logging.error("Key %s or section %s doesn't exist!(display_config=%s)\n", key, config_section, display_config)
+                return None
+            except OSError:
+                logging.exception("_get_config exception")
                 return None
 
     @classmethod
-    def update_config_values(cls, config_file: str, config_section: str, key_value: dict[str, str], internal_config: bool = False) -> None:
-        conf_path = Path(config_file)
-        tmp_file = Path(conf_path.parent / f"{conf_path.name}.replace")
-        with cls._lock:
-            config = cls._get_config(config_file, internal_config)
+    def update_config_values(cls, key_value: dict[str, str], *, display_config: bool) -> None:
+        cache = cls._display_cache if display_config else cls._config_cache
+        config_section = CONFIG["display_config_section"] if display_config else CONFIG["config_section"]
+        with cls._lock, cache["file_lock"]:
+            config = cls._get_config(display_config=display_config)
             if not config.has_section(config_section):
                 config.add_section(config_section)
             for key, value in key_value.items():
                 config[config_section][key] = value
-            with tmp_file.open(mode="w", encoding="utf8") as new_config_file:
-                config.write(new_config_file)
-
-            shutil.move(tmp_file, config_file)
-            cls._cache[config_file]["st_mtime"] = Path(config_file).stat().st_mtime
+            config_path = Path(cache["config_file"])
+            with config_path.open("w", encoding="utf-8") as file:
+                config.write(file)
+            cache["st_mtime"] = config_path.stat().st_mtime
