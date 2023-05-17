@@ -12,12 +12,13 @@ from sensors import BMP280, DHT, PMSA003C, Sensor, SensorReadingError
 from util import ConfigManager, InfluxDatabase, SensorType, RepeatTimer, SensorReadings, Switch
 from menu import Interface, Key
 
+
 class Device:
     def __init__(
         self,
         *,
         display: ScreenDisplay | None = None,
-        pi_gpio = pigpio.pi(),
+        pi_gpio=pigpio.pi(),
     ) -> None:
         self.database = InfluxDatabase()
         self.pi_gpio = pi_gpio
@@ -111,6 +112,7 @@ class Device:
             SensorType.PM10: get_timer(pmsa, SensorType.PM10, 10),
         }
 
+
 def main():
     logging.basicConfig(
         format='%(asctime)s %(levelname)-8s %(message)s',
@@ -119,14 +121,16 @@ def main():
         handlers=[RotatingFileHandler("sensor.log", encoding="utf-8", backupCount=2, maxBytes=1_000_000)]
     )
     device = Device()
+
     def sigint_handler(_1, _2):
         device.stop()
     signal.signal(signal.SIGINT, sigint_handler)
     try:
         device.run()
-    except Exception: #pylint: disable=broad-except
+    except Exception: # pylint: disable=broad-except
         logging.exception("device.run()")
         device.stop()
+
 
 if __name__ == "__main__":
     main()

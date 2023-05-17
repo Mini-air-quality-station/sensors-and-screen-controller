@@ -5,19 +5,21 @@ from luma.lcd.device import st7789, backlit_device
 from luma.core.interface.serial import spi
 from PIL import ImageFont
 
+
 class Terminal(luma_terminal):
-    def __init__(self, device: backlit_device, font=None, color="white", bgcolor="blue", tabstop=4, line_height=None, animate=False, word_wrap=False):
-        # if depth > 0 then don't flush(don't display on device just write to bitmap/image)
+    def __init__(self, device: backlit_device, font=None, color="white", bgcolor="blue",
+                 tabstop=4, line_height=None, animate=False, word_wrap=False):
+        # if depth > 0 then don't flush (don't display on device just write to bitmap/image)
         self.context_manager_depth = 0
         self.scroll = False
         super().__init__(device, font, color, bgcolor, tabstop, line_height, animate, word_wrap)
 
     def goto(self, x: int, y: int) -> None:
         if (0 <= x < self.width) and (0 <= y < self.height):
-            #pylint: disable=attribute-defined-outside-init
+            # pylint: disable=attribute-defined-outside-init
             self._cx = self._cw * x
             self._cy = self._ch * y
-            #pylint: enable=attribute-defined-outside-init
+            # pylint: enable=attribute-defined-outside-init
 
     @property
     def x(self):
@@ -27,7 +29,7 @@ class Terminal(luma_terminal):
     def y(self):
         return self._cy // self._ch
 
-    def println(self, text="", *, highlight = False, fill = True, scroll_first = False) -> None:
+    def println(self, text="", *, highlight=False, fill=True, scroll_first=False) -> None:
         if fill:
             text = text.ljust(self.width - self.x)
         if scroll_first:
@@ -77,7 +79,7 @@ class ScreenDisplay:
     def clear(self) -> None:
         self._display.clear()
 
-    def print_lines(self, lines: List[str], *, highlight=-1) -> None:
+    def print_lines(self, lines: List[str], *, highlight: int = -1) -> None:
         self._display.goto(0, 0)
         for i, line in enumerate(lines):
             self._display.println(line, highlight=(i == highlight))
@@ -85,7 +87,7 @@ class ScreenDisplay:
         for _ in range(self.rows - len(lines)):
             self._display.println()
 
-    def push_back(self, text: str, *, highlight = False) -> None:
+    def push_back(self, text: str, *, highlight: bool = False) -> None:
         self._display.goto(0, self._display.height - 1)
         self._display.println(text, highlight=highlight, scroll_first=True)
 

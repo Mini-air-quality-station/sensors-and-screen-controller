@@ -8,8 +8,7 @@ from adafruit_dht import DHT22
 import pigpio
 from util import SensorType
 
-class WrongSensorType(Exception):
-    pass
+
 class SensorReadingError(Exception):
     pass
 
@@ -105,7 +104,7 @@ class PMSA003C(Sensor):
         return bytearray()
 
     def update(self) -> None:
-        (_, data) = self.pi.bb_serial_read(self.RX)
+        _, data = self.pi.bb_serial_read(self.RX)
         if isinstance(data, bytearray):
             self.data += data
         frame = self.get_data(self.data)

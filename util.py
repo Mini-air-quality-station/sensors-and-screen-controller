@@ -16,13 +16,15 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 from influxdb_client.rest import ApiException
 from urllib3.exceptions import NewConnectionError
 
+
 CONFIG = {
-    "config_file": "/etc/mini-air-quality/sensors_config.ini",
-    "config_section": "sensors_config",
-    "config_lock": "/etc/mini-air-quality/envs.lock",
-    "display_config_file": "./display_config.ini",
-    "display_config_section": "display_config",
+    "sensor_file": "/etc/mini-air-quality/sensors_config.ini",
+    "sensor_section": "sensors_config",
+    "sensor_lock": "/etc/mini-air-quality/envs.lock",
+    "display_file": "./display_config.ini",
+    "display_section": "display_config",
 }
+
 
 class SensorType(Enum):
     TEMPERATURE = "temperature_dht22_freq"
@@ -163,7 +165,7 @@ class RepeatTimer(Timer):
         self.stop = True
         super().cancel()
 
-    def reset(self, new_interval = None) -> None:
+    def reset(self, new_interval: float | None = None) -> None:
         if new_interval is not None:
             self.interval = new_interval
         self.finished.set()
@@ -254,6 +256,7 @@ class FileLock:
                 self.lock_file.close()
                 self.lock_file = None
 
+
 class ConfigManager:
     class ConfigCache(TypedDict):
         config_file: str
@@ -261,16 +264,15 @@ class ConfigManager:
         st_mtime: float
         config: ConfigParser | None
 
-
     _lock = RLock()
     _config_cache: ConfigCache = {
-        "config_file": CONFIG["config_file"],
-        "file_lock": FileLock(CONFIG["config_lock"]),
+        "config_file": CONFIG["sensor_file"],
+        "file_lock": FileLock(CONFIG["sensor_lock"]),
         "st_mtime": float('-inf'),
         "config": None
         }
     _display_cache: ConfigCache = {
-        "config_file": CONFIG["display_config_file"],
+        "config_file": CONFIG["display_file"],
         "file_lock": nullcontext(),
         "st_mtime": float('-inf'),
         "config": None
@@ -331,7 +333,7 @@ class ConfigManager:
     @classmethod
     def get_config_value(cls, key: str, *, display_config: bool) -> str | None:
         """@brief Return value of config with key=key. If key doesn't exist return None"""
-        config_section = CONFIG["display_config_section"] if display_config else CONFIG["config_section"]
+        config_section = CONFIG["display_section"] if display_config else CONFIG["sensor_section"]
         with cls._lock:
             try:
                 config = cls._get_config(display_config=display_config)
@@ -346,7 +348,7 @@ class ConfigManager:
     @classmethod
     def update_config_values(cls, key_value: dict[str, str], *, display_config: bool) -> None:
         cache = cls._display_cache if display_config else cls._config_cache
-        config_section = CONFIG["display_config_section"] if display_config else CONFIG["config_section"]
+        config_section = CONFIG["display_section"] if display_config else CONFIG["sensor_section"]
         with cls._lock, cache["file_lock"]:
             config = cls._get_config(display_config=display_config)
             if not config.has_section(config_section):

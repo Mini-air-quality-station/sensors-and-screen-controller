@@ -41,6 +41,7 @@ class Menu(ABC):
     def set_display(self, display: ScreenDisplay):
         self.display = display
 
+
 class MenuList(Menu):
     def __init__(self, display_str: str, elements: list[Menu | CallableMenuElement] | None = None):
         super().__init__(display_str)
@@ -151,6 +152,7 @@ class View(Enum):
 
     def next(self):
         return View(self.value + 1 if self.value < 2 else 0)
+
     def prev(self):
         return View(self.value - 1 if self.value > 0 else 2)
 
@@ -158,7 +160,7 @@ class View(Enum):
 class Interface:
     def __init__(self, *, menu: Menu, sensor_readings: SensorReadings, display: ScreenDisplay) -> None:
         self._root_menu = menu
-        self._current_menu : Menu | None = None
+        self._current_menu: Menu | None = None
         self._display = display
         self._lock = RLock()
         self._root_menu.set_display(display)
@@ -225,13 +227,12 @@ class Interface:
             self.display_view()
 
     def display_view(self):
-        def get_color(value: int | float, colors: list[tuple[int|float, str]]):
+        def get_color(value: int | float, colors: list[tuple[int | float, str]]):
             last_color = colors[0][1]
             for threshold, color in colors:
                 if value < threshold:
                     break
-                else:
-                    last_color = color
+                last_color = color
             return last_color
 
         with self._lock, self._display:
@@ -355,21 +356,21 @@ class FreqencyChoice(Menu):
             if self.parent:
                 self.parent.redraw()
             return self.parent
-        if key == Key.UP:
+        elif key == Key.UP:
             if self.new_frequency > 0:
                 self.new_frequency -= 1
             else:
                 self.new_frequency = len(self.frequency_list) - 1 if len(self.frequency_list) else 0
             self.redraw()
             return self
-        if key == Key.DOWN:
+        elif key == Key.DOWN:
             if self.new_frequency < len(self.frequency_list) - 1:
                 self.new_frequency += 1
             else:
                 self.new_frequency = 0
             self.redraw()
             return self
-        else: #Key.OK
+        else:  # Key.OK
             self.current_frequency = self.new_frequency
             self._update_display_string()
             ConfigManager.update_config_values(
