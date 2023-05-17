@@ -3,7 +3,7 @@ sensors:
     model: PMSA003-C
     measure_unit: μg/m³
     measure_freq_unit: s # Seconds
-    measure_freq_caps: #TODO: Update caps when discussed
+    measure_freq_caps:
       - 3
       - 5
       - 10
@@ -19,7 +19,7 @@ sensors:
     model: PMSA003-C
     measure_unit: μg/m³
     measure_freq_unit: s # Seconds
-    measure_freq_caps: #TODO: Update caps when discussed
+    measure_freq_caps:
       - 3
       - 5
       - 10
@@ -35,7 +35,7 @@ sensors:
     model: PMSA003-C
     measure_unit: μg/m³
     measure_freq_unit: s # Seconds
-    measure_freq_caps: #TODO: Update caps when discussed
+    measure_freq_caps:
       - 3
       - 5
       - 10

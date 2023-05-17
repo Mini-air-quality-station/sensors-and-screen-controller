@@ -3,7 +3,7 @@ sensors:
     model: BMP280
     measure_unit: °C
     measure_freq_unit: s # Seconds
-    measure_freq_caps: #TODO: Update caps when discussed
+    measure_freq_caps:
       - 0
     default_measure_freq: 0
     env_name: TEMPERATURE_BMP280_FREQ
@@ -12,7 +12,7 @@ sensors:
     model: DHT22
     measure_unit: °C
     measure_freq_unit: s # Seconds
-    measure_freq_caps: #TODO: Update caps when discussed
+    measure_freq_caps:
       - 5
       - 10
       - 15

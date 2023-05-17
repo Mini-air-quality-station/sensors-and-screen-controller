@@ -1,13 +1,12 @@
-#!/bin/python3
+#!/usr/bin/env python
+
 from __future__ import annotations
 from logging.handlers import RotatingFileHandler
 import signal
 import logging
 from pathlib import Path
 from threading import Event
-
 import pigpio
-
 from display import ST7789Display, ScreenDisplay
 from sensor_menu import get_menu
 from sensors import BMP280, DHT, PMSA003C, Sensor, SensorReadingError

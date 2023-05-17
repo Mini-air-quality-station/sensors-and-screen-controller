@@ -1,15 +1,11 @@
 import logging
 import signal
-from functools import partial
-from threading import Lock, Thread
 import time
-from typing import Callable
-
-import pigpio
-from luma.emulator.device import asciiblock, pygame as luma_pygame
-from PIL import ImageFont
+from threading import Lock, Thread
+from typing import Callable, Literal
 import pygame
-
+from luma.emulator.device import pygame as luma_pygame
+from PIL import ImageFont
 from display import ScreenDisplay, Terminal
 from sensor_main import Device
 
@@ -21,13 +17,12 @@ def main():
         filename='sensor.log',
         encoding='utf-8',
     )
-    print(f"{pygame.init()=}")
+    pygame.init()
     emulator = PygameEmulator(320, 240, rotate=0)
-    keyboard = KeyboardMock()
+    keyboard = PigpioWrapper()
     device = Device(
         config_file="sensor_specs/sensors_config.ini",
-        pi_gpio=PigpioWrapper(keyboard),
-        #database=Database(),
+        pi_gpio=keyboard,
         display=ScreenDisplay(
             terminal=Terminal(
                 device=emulator,
@@ -36,6 +31,7 @@ def main():
         )
     )
     stop = False
+
     def sigint_handler(_1, _2):
         nonlocal stop
         stop = True
@@ -67,6 +63,7 @@ PIN_TO_KEY = {
     13: pygame.K_RIGHT
 }
 
+
 class Callback:
     def __init__(self, func: Callable[[int, int, int], None], remove_self, edge, pin, state) -> None:
         self.remove_self = remove_self
@@ -82,8 +79,9 @@ class Callback:
         self.last_state = not self.last_state
         self.func(self.pin, self.last_state, 0)
 
-class KeyboardMock:    
-    def __init__(self) -> None:
+
+class PigpioWrapper:
+    def __init__(self):
         self.connected = True
         self.callbacks: list[Callback] = []
 
@@ -108,13 +106,6 @@ class KeyboardMock:
         except ValueError:
             logging.error("Multiple calls to callback.cancel()")
 
-class PigpioWrapper(pigpio.pi):
-    # pylint: disable-next=super-init-not-called
-    def __init__(self, keyboard):
-        self.keyboard = keyboard
-
-    def __getattribute__(self, attr):
-        return object.__getattribute__(self, "keyboard").__getattribute__(attr)
 
 class PygameEmulator(luma_pygame):
     def __init__(self, width=128, height=64, rotate=0, mode="RGB", transform="scale2x", scale=2, frame_rate=60, **kwargs):
@@ -122,31 +113,21 @@ class PygameEmulator(luma_pygame):
         self.quit = False
         self._lock = Lock()
 
-    def backlight(self, on_off):
+    def backlight(self, on_off) -> None:
         pass
 
-    def get_pygame(self):
-        return self._pygame
-
-    def abort(self):
+    def abort(self) -> None:
         with self._lock:
             if not self.quit:
                 self.quit = True
 
-    def _abort(self):
+    def _abort(self) -> Literal[False]:
         return False
 
-    def display(self, image):
+    def display(self, image) -> None:
         with self._lock:
             if not self.quit:
                 super().display(image)
-
-#pylint: disable=invalid-name
-def ConsoleDisplay():
-    return partial(ScreenDisplay,
-        Terminal(asciiblock(320, 120), font=ImageFont.truetype("DejaVuSansMono.ttf", 24)))
-#pylint: enable=invalid-name
-
 
 if __name__ == "__main__":
     main()

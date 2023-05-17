@@ -3,7 +3,7 @@ sensors:
     model: BMP280
     measure_unit: hPa
     measure_freq_unit: s # Seconds
-    measure_freq_caps: #TODO: Update caps when discussed
+    measure_freq_caps:
       - 1
       - 2
       - 3

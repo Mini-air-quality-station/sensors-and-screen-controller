@@ -11,14 +11,15 @@ from util import ConfigManager, RepeatTimer, SensorType, SensorReadings, Key
 from display import ScreenDisplay
 
 CONFIG_SECTION = "sensors_config"
-INTERNAL_CONFIG_SECTION = "display"
-INTERNAL_CONFIG_FILE = "./config.ini"
+INTERNAL_CONFIG_SECTION = "display_config"
+INTERNAL_CONFIG_FILE = "./display_config.ini"
 
 def get_internal_config_value(key: str):
     return ConfigManager.get_config_value(INTERNAL_CONFIG_FILE,
                                           INTERNAL_CONFIG_SECTION,
                                           key,
                                           True)
+
 
 class CallableMenuElement:
     def __init__(self, display_str: str) -> None:
@@ -59,23 +60,23 @@ class MenuList(Menu):
         self.start_row: int = 0
         self.selected: int = 0
 
-    def add_element(self, menu_element: Menu | CallableMenuElement):
+    def add_element(self, menu_element: Menu | CallableMenuElement) -> None:
         if isinstance(menu_element, Menu):
             menu_element.set_display(self.display)
         menu_element.parent = self
         self.menu_elements.append(menu_element)
 
-    def set_display(self, display: ScreenDisplay):
+    def set_display(self, display: ScreenDisplay) -> None:
         """Set display recursively for every menu element"""
         super().set_display(display)
         for element in self.menu_elements:
             if isinstance(element, Menu):
                 element.set_display(display)
-    
-    def _display_row(self, menu_index):
+
+    def _display_row(self, menu_index: int) -> int:
         return menu_index - self.start_row
-    
-    def change_highlight(self, new_highlight: int, old_highlight: int):
+
+    def change_highlight(self, new_highlight: int, old_highlight: int) -> None:
         self.display.update_row(
             self._display_row(old_highlight),
             self.menu_elements[old_highlight].display_str,
@@ -152,17 +153,20 @@ class MenuList(Menu):
         ]
         self.display.print_lines(display_str, highlight=self._display_row(self.selected))
 
+
 class View(Enum):
     DATE = 0
     DUST = 1
     TEMP_PRES_HUMI = 2
+
     def next(self):
         return View(self.value + 1 if self.value < 2 else 0)
     def prev(self):
         return View(self.value - 1 if self.value > 0 else 2)
 
+
 class Interface:
-    def __init__(self,*, menu: Menu, sensor_readings: SensorReadings, display: ScreenDisplay) -> None:
+    def __init__(self, *, menu: Menu, sensor_readings: SensorReadings, display: ScreenDisplay) -> None:
         self._root_menu = menu
         self._current_menu : Menu | None = None
         self._display = display
@@ -239,10 +243,10 @@ class Interface:
                 else:
                     last_color = color
             return last_color
-                
+
         with self._lock, self._display:
             self._display.clear()
-            if self.view == View.DATE:
+            if self.view is View.DATE:
                 hours = datetime.now().strftime("%I:%M %p")
                 day_name = datetime.today().strftime('%a')
                 day = datetime.now().day
@@ -254,7 +258,7 @@ class Interface:
                 self._display.update_row(middle_row - 1, hours, col=int((self._display.cols - len(hours))/2))
                 self._display.update_row(middle_row, date, col=int((self._display.cols - len(date))/2), fill=False)
                 self._display.reset()
-            elif self.view == View.DUST:
+            elif self.view is View.DUST:
                 thresholds = {
                     SensorType.PM1: ("PM1", [(float("-inf"), "green"), (7, "orange"), (25, "red")]),
                     SensorType.PM2_5: ("PM2.5", [(float("-inf"), "green"), (35, "orange"), (75, "red")]),
@@ -265,7 +269,7 @@ class Interface:
                 if not show:
                     self.next_view()
                     return
-                
+
                 for i, sensor_type in enumerate(show):
                     value = self._readings.get(sensor_type)
                     string = f"{thresholds[sensor_type][0]} ="
@@ -292,10 +296,11 @@ class Interface:
         """@brief update sensor sensor_type if currently shown on screen"""
         with self._lock, self._display:
             if self._current_menu is None:
-                if self.view == View.DUST and sensor_type in self.dust_view:
+                if self.view is View.DUST and sensor_type in self.dust_view:
                     self.display_view()
-                elif self.view == View.TEMP_PRES_HUMI and sensor_type in self.temp_view:
+                elif self.view is View.TEMP_PRES_HUMI and sensor_type in self.temp_view:
                     self.display_view()
+
 
 class OnOffConfig(CallableMenuElement):
     def __init__(self, display_str: str, config_value) -> None:
@@ -320,17 +325,20 @@ class OnOffConfig(CallableMenuElement):
                                            True)
         self.display_str = f"{self.base_display_str}: {'ON' if self.on_off else 'OFF'}"
 
+
 class PoweroffMenu(CallableMenuElement):
     def call(self):
         signal.raise_signal(signal.SIGINT)
         time.sleep(2.5)
         os.system("sudo shutdown now -h")
 
+
 class RebootMenu(CallableMenuElement):
     def call(self):
         signal.raise_signal(signal.SIGINT)
         time.sleep(2.5)
         os.system("sudo reboot")
+
 
 class FreqencyChoice(Menu):
     def __init__(self, display_str, config_file, config_section, config_key: str, frequency_list: list[int]):

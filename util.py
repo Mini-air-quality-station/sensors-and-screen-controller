@@ -26,7 +26,7 @@ class SensorType(Enum):
 
     @classmethod
     @functools.cache
-    def index(cls, sensor_type: SensorType):
+    def index(cls, sensor_type: SensorType) -> int:
         """@brief Returns index of element"""
         return list(SensorType).index(sensor_type)
 
@@ -39,15 +39,15 @@ class Key(Enum):
 
 
 class Database:
-    def close(self):
+    def close(self) -> None:
         pass
 
-    #pylint: disable-next=unused-argument
-    def get_last(self, sensor_type: SensorType) -> int | float:
+    def get_last(self, _sensor_type: SensorType) -> int | float:
         return float('nan')
 
-    def add(self, sensor_type: SensorType, value: int | float):
+    def add(self, _sensor_type: SensorType, value: int | float) -> None:
         pass
+
 
 class InfluxDatabase(Database):
     def __init__(self) -> None:
@@ -65,7 +65,7 @@ class InfluxDatabase(Database):
         self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
         self.query_api = self.client.query_api()
 
-    def close(self):
+    def close(self) -> None:
         self.write_api.close()
         self.client.close()
 
@@ -89,7 +89,7 @@ class InfluxDatabase(Database):
                 logging.exception("InfluxDB ApiException, couldn't write")
                 return float('nan')
 
-    def add(self, sensor_type: SensorType, value: int | float):
+    def add(self, sensor_type: SensorType, value: int | float) -> None:
         with self._lock:
             point = influxdb_client.Point(sensor_type.name).field("value", value)
             try:
@@ -112,12 +112,13 @@ class SensorReadings:
         }
         self.database = database
 
-    def get(self, sensor_type: SensorType):
+    def get(self, sensor_type: SensorType) -> int | float:
         return self.readings[sensor_type]
 
-    def add(self, sensor_type: SensorType, value: int | float):
+    def add(self, sensor_type: SensorType, value: int | float) -> None:
         self.readings[sensor_type] = value
         self.database.add(sensor_type, value)
+
 
 class ResettableTimer(Timer):
     """call start to initialize, call reset to 'start' timer"""
@@ -126,18 +127,18 @@ class ResettableTimer(Timer):
         self._function_wait = Condition()
         self._end = False
 
-    def cancel(self):
+    def cancel(self) -> None:
         with self._function_wait:
             super().cancel()
             self._end = True
             self._function_wait.notify()
 
-    def stop(self):
+    def stop(self) -> None:
         """@brief stop timer and wait for cancel or reset"""
         with self._function_wait:
             self._function_wait.notify()
 
-    def reset(self, interval: float | None = None):
+    def reset(self, interval: float | None = None) -> None:
         """@brief restart timer with different interval if not None"""
         with self._function_wait:
             if interval is not None:
@@ -155,25 +156,27 @@ class ResettableTimer(Timer):
             if finished_wait:
                 self.function(*self.args, **self.kwargs)
 
+
 class RepeatTimer(Timer):
     def __init__(self, interval: float, function: Callable[..., object], *args, **kwargs) -> None:
         super().__init__(interval, function, args, kwargs)
         self.stop = False
 
-    def cancel(self):
+    def cancel(self) -> None:
         self.stop = True
         super().cancel()
 
-    def reset(self, new_interval = None):
+    def reset(self, new_interval = None) -> None:
         if new_interval is not None:
             self.interval = new_interval
         self.finished.set()
 
-    def run(self):
+    def run(self) -> None:
         while not self.stop:
             if not self.finished.wait(self.interval):
                 self.function(*self.args, **self.kwargs)
             self.finished.clear()
+
 
 class Switch:
     def __init__(
@@ -202,7 +205,7 @@ class Switch:
         self._edge_callback = pi_gpio.callback(pin, pigpio.EITHER_EDGE, self.edge_change)
         self.callback = callback
 
-    def edge_change(self, _1, level, _2):
+    def edge_change(self, _1, level, _2) -> None:
         with self._lock:
             if level != 2:
                 if level != self.current_state:
@@ -210,7 +213,7 @@ class Switch:
                 else:
                     self._debounce_timer.stop()
 
-    def change_state(self):
+    def change_state(self) -> None:
         self.current_state = not self.current_state
         if self.current_state:
             self.callback(self.key, False)
@@ -218,13 +221,14 @@ class Switch:
         else:
             self._long_timer.stop()
 
-    def clean(self):
+    def clean(self) -> None:
         """@brief Call when done using switch."""
         self._edge_callback.cancel()
         self._debounce_timer.cancel()
         self._long_timer.cancel()
         self._debounce_timer.join(1)
         self._long_timer.join(1)
+
 
 class ConfigManager:
     _lock = RLock()
@@ -236,7 +240,7 @@ class ConfigManager:
     _cache: dict[str, ConfigCache] = {}
 
     @classmethod
-    def is_cache_current(cls, config_file: str):
+    def is_cache_current(cls, config_file: str) -> bool:
         """Return true if config_file isn't cached or file was modified since last cached"""
         with cls._lock:
             return (config_file in cls._cache
@@ -245,7 +249,7 @@ class ConfigManager:
                     )
 
     @classmethod
-    def _get_config(cls, config_file: str, internal_config: bool = False):
+    def _get_config(cls, config_file: str, internal_config: bool = False) -> ConfigParser:
         with cls._lock:
             if (internal_config and config_file in cls._cache):
                 logging.debug("%s: cached internal config", config_file)
@@ -284,7 +288,7 @@ class ConfigManager:
         return deepcopy(cls._get_config(config_file, internal_config))
 
     @classmethod
-    def get_config_value(cls, config_file: str, config_section: str, key: str, internal_config: bool = False):
+    def get_config_value(cls, config_file: str, config_section: str, key: str, internal_config: bool = False) -> str | None:
         """@brief Return value of config with key=key. If key doesn't exist return None"""
         with cls._lock:
             config = cls._get_config(config_file, internal_config)
@@ -295,7 +299,7 @@ class ConfigManager:
                 return None
 
     @classmethod
-    def update_config_values(cls, config_file: str, config_section: str, key_value: dict[str, str], internal_config: bool = False):
+    def update_config_values(cls, config_file: str, config_section: str, key_value: dict[str, str], internal_config: bool = False) -> None:
         conf_path = Path(config_file)
         tmp_file = Path(conf_path.parent / f"{conf_path.name}.replace")
         with cls._lock:

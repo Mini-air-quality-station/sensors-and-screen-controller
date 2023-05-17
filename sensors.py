@@ -6,13 +6,13 @@ import board
 import adafruit_bmp280
 from adafruit_dht import DHT22
 import pigpio
-
 from util import SensorType
 
 class WrongSensorType(Exception):
     pass
 class SensorReadingError(Exception):
     pass
+
 
 class Sensor(ABC):
     def __init__(self) -> None:
@@ -22,6 +22,7 @@ class Sensor(ABC):
     @abstractmethod
     def get_reading(self, sensor_type: SensorType) -> int | float:
         raise NotImplementedError
+
 
 class DHT(Sensor):
     def __init__(self) -> None:
@@ -34,17 +35,18 @@ class DHT(Sensor):
     def get_reading(self, sensor_type: SensorType) -> int:
         with self._lock:
             try:
-                if sensor_type == SensorType.TEMPERATURE:
+                if sensor_type is SensorType.TEMPERATURE:
                     temp = self.dht.temperature
                     if temp is not None:
                         return int(temp)
-                elif sensor_type == SensorType.HUMIDITY:
+                elif sensor_type is SensorType.HUMIDITY:
                     humidity = self.dht.humidity
                     if humidity is not None:
                         return int(humidity)
             except Exception as exc:
                 raise SensorReadingError from exc
         raise SensorReadingError
+
 
 class BMP280(Sensor):
     def __init__(self) -> None:
@@ -57,7 +59,7 @@ class BMP280(Sensor):
     def get_reading(self, sensor_type: SensorType) -> int | float:
         with self._lock:
             try:
-                if sensor_type == SensorType.PRESSURE:
+                if sensor_type is SensorType.PRESSURE:
                     pressure = self.bmp280.pressure
                     if pressure is not None:
                         return int(self.bmp280.pressure)
@@ -65,15 +67,20 @@ class BMP280(Sensor):
                 raise SensorReadingError from exc
         raise SensorReadingError
 
+
 class PMSA003C(Sensor):
     def __init__(self) -> None:
         super().__init__()
         self.RX = 24
-        self.pi = pigpio.pi()
+        self.pi: pigpio.pi = pigpio.pi()
         self.start1 = 0x42
         self.start2 = 0x4d
         self.working = True
-        self.pm: dict[SensorType, None | int] = {SensorType.PM1: None, SensorType.PM2_5: None, SensorType.PM10: None}
+        self.pm: dict[SensorType, None | int] = {
+            SensorType.PM1: None,
+            SensorType.PM2_5: None,
+            SensorType.PM10: None
+        }
 
         if not self.pi.connected:
             logging.error("pigpio not connected!")
@@ -85,27 +92,28 @@ class PMSA003C(Sensor):
         pigpio.exceptions = True
         self.pi.bb_serial_read_open(self.RX, 9600)
 
-        self.data = bytearray()
+        self.data: bytearray = bytearray()
 
-    def check_sum(self, data):
+    def check_sum(self, data) -> bool:
         return len(data) == 32 and sum(data[:30]) == int.from_bytes(data[-2:], byteorder='big')
 
-    def get_data(self, data):
+    def get_data(self, data: bytearray) -> bytearray:
         indices = [i for i, x in enumerate(data[:-1]) if x == self.start1 and data[i+1] == self.start2]
         for i in reversed(indices):
             if self.check_sum(data[i:i+32]):
                 return data[i:i+32]
-        return []
+        return bytearray()
 
-    def update(self):
+    def update(self) -> None:
         (_, data) = self.pi.bb_serial_read(self.RX)
-        self.data += data if isinstance(data, bytearray) else []
+        if isinstance(data, bytearray):
+            self.data += data
         frame = self.get_data(self.data)
         if frame:
             self.pm[SensorType.PM1] = int.from_bytes(data[4:6], byteorder='big')
             self.pm[SensorType.PM2_5] = int.from_bytes(data[6:8], byteorder='big')
             self.pm[SensorType.PM10] = int.from_bytes(data[8:10], byteorder='big')
-            self.data = []
+            self.data = bytearray()
 
     def get_reading(self, sensor_type: SensorType) -> int | float:
         if not self.working:
