@@ -66,7 +66,7 @@ class InfluxDatabase:
         self.write_api.close()
         self.client.close()
 
-    def get_last(self, sensor_type: SensorType) -> int | float:
+    def get_last(self, sensor_type: SensorType) -> int | float | None:
         with self._lock:
             query = f'from(bucket:"{self.bucket}")\
                 |> range(start: 0)\
@@ -78,13 +78,13 @@ class InfluxDatabase:
                 return result[0].records[0].get_value()
             except IndexError:
                 logging.info("%s table is empty", sensor_type.name)
-                return float('nan')
+                return None
             except NewConnectionError:
                 logging.exception("InfluxDB Connection error, couldn't write")
-                return float('nan')
+                return None
             except ApiException:
                 logging.exception("InfluxDB ApiException, couldn't write")
-                return float('nan')
+                return None
 
     def add(self, sensor_type: SensorType, value: int | float) -> None:
         with self._lock:
@@ -109,7 +109,7 @@ class SensorReadings:
         }
         self.database = database
 
-    def get(self, sensor_type: SensorType) -> int | float:
+    def get(self, sensor_type: SensorType) -> int | float | None:
         return self.readings[sensor_type]
 
     def add(self, sensor_type: SensorType, value: int | float) -> None:

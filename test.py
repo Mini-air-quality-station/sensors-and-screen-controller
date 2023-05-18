@@ -93,6 +93,7 @@ class PigpioWrapper:
 
     def set_mode(self, _pin, _mode) -> None:
         pass
+
     def set_pull_up_down(self, _pin, _pull) -> None:
         pass
 
@@ -110,6 +111,7 @@ class PigpioWrapper:
         try:
             self.callbacks.remove(_callback)
         except ValueError:
+            # callback.cancel()(called in util.py Switch) calls _remove_callback.
             logging.error("Multiple calls to callback.cancel()")
 
 
@@ -119,6 +121,7 @@ class PygameEmulator(luma_pygame):
         self.quit = False
         self._lock = Lock()
 
+    # Called by turn_on()/turn_off() in display.py. Doesn't need to do anything
     def backlight(self, on_off) -> None:
         pass
 

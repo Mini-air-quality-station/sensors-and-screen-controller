@@ -124,8 +124,6 @@ class PMSA003C(Sensor):
             except Exception as exc:
                 raise SensorReadingError from exc
 
-            if sensor_type not in self.pm:
-                raise WrongSensorType
             tmp = self.pm[sensor_type]
             if tmp is None:
                 raise SensorReadingError

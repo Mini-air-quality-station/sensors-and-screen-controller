@@ -225,7 +225,7 @@ class Interface:
             self.display_view()
 
     def display_view(self):
-        def get_color(value: int, colors: list[tuple[int|float, str]]):
+        def get_color(value: int | float, colors: list[tuple[int|float, str]]):
             last_color = colors[0][1]
             for threshold, color in colors:
                 if value < threshold:
@@ -262,11 +262,13 @@ class Interface:
 
                 for i, sensor_type in enumerate(show):
                     value = self._readings.get(sensor_type)
+                    value_str = '---' if value is None else str(value)
                     string = f"{thresholds[sensor_type][0]} ="
                     row = int(((i + 1) * self._display.rows / (len(show) + 1)))
                     self._display.update_row(row, string, col=2)
-                    self._display.background_color(get_color(value, thresholds[sensor_type][1]))
-                    self._display.update_row(row, f"{value} μg/m³", col=3 + len(string), fill=False)
+                    if value is not None:
+                        self._display.background_color(get_color(value, thresholds[sensor_type][1]))
+                    self._display.update_row(row, f"{value_str} μg/m³", col=3 + len(string), fill=False)
                     self._display.reset()
             else:
                 units = [' °C', '%', ' hPa']
@@ -276,9 +278,11 @@ class Interface:
                     self.next_view()
                     return
                 for i, (sensor_type, unit) in enumerate(show):
+                    value = self._readings.get(sensor_type)
+                    value_str = '---' if value is None else str(value)
                     self._display.update_row(
                         int(((i + 1) * self._display.rows / (len(show) + 1))),
-                        f"{sensor_type.name.capitalize()} = {self._readings.get(sensor_type)}{unit}",
+                        f"{sensor_type.name.capitalize()} = {value_str}{unit}",
                         col=2
                     )
 
