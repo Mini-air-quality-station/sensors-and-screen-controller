@@ -87,9 +87,20 @@ class Device:
         return sensor_conf
 
     def _get_sensor_timers(self, readings: SensorReadings, interface: Interface):
-        dht = DHT()
-        bmp = BMP280()
-        pmsa = PMSA003C()
+        def make_sensor(sensor_class: type[Sensor], *args) -> Sensor | None:
+            try:
+                return sensor_class(*args)
+            except Exception:  # pylint: disable=broad-exception-caught
+                logging.exception("Couldn't init sensor: %s", sensor_class.__name__)
+                return None
+
+        dht = make_sensor(DHT)
+        bmp = make_sensor(BMP280)
+        pmsa = make_sensor(PMSA003C, self.pi_gpio)
+        sensors: list[tuple[SensorType, Sensor | None]] = [
+            (SensorType.HUMIDITY, dht), (SensorType.TEMPERATURE, dht), (SensorType.PRESSURE, bmp),
+            (SensorType.PM1, pmsa), (SensorType.PM2_5, pmsa), (SensorType.PM10, pmsa)
+        ]
         start_conf = self._get_current_conf()
 
         def update_reading(sensor: Sensor, sensor_type: SensorType):
@@ -104,12 +115,8 @@ class Device:
             return RepeatTimer(start_conf.get(sensor_type, default_value), update_reading, sensor, sensor_type)
 
         return {
-            SensorType.HUMIDITY: get_timer(dht, SensorType.HUMIDITY, 10),
-            SensorType.TEMPERATURE: get_timer(dht, SensorType.TEMPERATURE, 10),
-            SensorType.PRESSURE: get_timer(bmp, SensorType.PRESSURE, 10),
-            SensorType.PM1: get_timer(pmsa, SensorType.PM1, 10),
-            SensorType.PM2_5: get_timer(pmsa, SensorType.PM2_5, 10),
-            SensorType.PM10: get_timer(pmsa, SensorType.PM10, 10),
+            sensor_type: get_timer(sensor, sensor_type, 10)
+            for sensor_type, sensor in sensors if sensor is not None
         }
 
 
@@ -127,7 +134,7 @@ def main():
     signal.signal(signal.SIGINT, sigint_handler)
     try:
         device.run()
-    except Exception: # pylint: disable=broad-except
+    except Exception:  # pylint: disable=broad-except
         logging.exception("device.run()")
         device.stop()
 

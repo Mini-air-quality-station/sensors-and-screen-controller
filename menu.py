@@ -244,10 +244,10 @@ class Interface:
                 month = datetime.now().strftime('%b')
                 year = datetime.now().year
                 date = f"{day_name}, {day} {month} {year}"
-                middle_row = int(self._display.rows/2)
+                middle_row = int(self._display.rows / 2)
 
-                self._display.update_row(middle_row - 1, hours, col=int((self._display.cols - len(hours))/2))
-                self._display.update_row(middle_row, date, col=int((self._display.cols - len(date))/2), fill=False)
+                self._display.update_row(middle_row - 1, hours, col=int((self._display.cols - len(hours)) / 2))
+                self._display.update_row(middle_row, date, col=int((self._display.cols - len(date)) / 2), fill=False)
                 self._display.reset()
             elif self.view is View.DUST:
                 thresholds = {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from threading import Lock
-import logging
+from typing import Literal
 import board
 import adafruit_bmp280
 from adafruit_dht import DHT22
@@ -26,10 +26,7 @@ class Sensor(ABC):
 class DHT(Sensor):
     def __init__(self) -> None:
         super().__init__()
-        try:
-            self.dht = DHT22(board.D4)
-        except AttributeError:
-            logging.exception("DHT error")
+        self.dht = DHT22(board.D4)
 
     def get_reading(self, sensor_type: SensorType) -> int:
         with self._lock:
@@ -50,10 +47,7 @@ class DHT(Sensor):
 class BMP280(Sensor):
     def __init__(self) -> None:
         super().__init__()
-        try:
-            self.bmp280 = adafruit_bmp280.Adafruit_BMP280_I2C(board.I2C(), address=0x76)
-        except AttributeError:
-            logging.exception("BMP280 error")
+        self.bmp280 = adafruit_bmp280.Adafruit_BMP280_I2C(board.I2C(), address=0x76)
 
     def get_reading(self, sensor_type: SensorType) -> int | float:
         with self._lock:
@@ -68,24 +62,21 @@ class BMP280(Sensor):
 
 
 class PMSA003C(Sensor):
-    def __init__(self) -> None:
+    BYTEORDER: Literal['big'] = 'big'
+
+    def __init__(self, pi: pigpio.pi) -> None:
+        if not pi.connected:
+            raise AttributeError
         super().__init__()
         self.RX = 24
-        self.pi: pigpio.pi = pigpio.pi()
+        self.pi = pi
         self.start1 = 0x42
         self.start2 = 0x4d
-        self.working = True
         self.pm: dict[SensorType, None | int] = {
             SensorType.PM1: None,
             SensorType.PM2_5: None,
             SensorType.PM10: None
         }
-
-        if not self.pi.connected:
-            logging.error("pigpio not connected!")
-            self.working = False
-            return
-
         pigpio.exceptions = False
         self.pi.bb_serial_read_close(self.RX)
         pigpio.exceptions = True
@@ -94,7 +85,7 @@ class PMSA003C(Sensor):
         self.data: bytearray = bytearray()
 
     def check_sum(self, data) -> bool:
-        return len(data) == 32 and sum(data[:30]) == int.from_bytes(data[-2:], byteorder='big')
+        return len(data) == 32 and sum(data[:30]) == int.from_bytes(data[-2:], byteorder=self.BYTEORDER)
 
     def get_data(self, data: bytearray) -> bytearray:
         indices = [i for i, x in enumerate(data[:-1]) if x == self.start1 and data[i+1] == self.start2]
@@ -109,14 +100,12 @@ class PMSA003C(Sensor):
             self.data += data
         frame = self.get_data(self.data)
         if frame:
-            self.pm[SensorType.PM1] = int.from_bytes(data[4:6], byteorder='big')
-            self.pm[SensorType.PM2_5] = int.from_bytes(data[6:8], byteorder='big')
-            self.pm[SensorType.PM10] = int.from_bytes(data[8:10], byteorder='big')
+            self.pm[SensorType.PM1] = int.from_bytes(data[4:6], byteorder=self.BYTEORDER)
+            self.pm[SensorType.PM2_5] = int.from_bytes(data[6:8], byteorder=self.BYTEORDER)
+            self.pm[SensorType.PM10] = int.from_bytes(data[8:10], byteorder=self.BYTEORDER)
             self.data = bytearray()
 
     def get_reading(self, sensor_type: SensorType) -> int | float:
-        if not self.working:
-            raise SensorReadingError
         with self._lock:
             try:
                 self.update()

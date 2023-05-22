@@ -113,7 +113,8 @@ class ScreenDisplay:
 
 class ST7789Display(ScreenDisplay):
     def __init__(self) -> None:
-        super().__init__(Terminal(
+        super().__init__(
+            Terminal(
                 st7789(
                     spi(gpio_DC=27, gpio_RST=17),
                     width=320,

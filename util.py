@@ -62,31 +62,10 @@ class InfluxDatabase:
             url=url, org=self.org, username=self.username, password=self.password, token=self.token
         )
         self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
-        self.query_api = self.client.query_api()
 
     def close(self) -> None:
         self.write_api.close()
         self.client.close()
-
-    def get_last(self, sensor_type: SensorType) -> int | float | None:
-        with self._lock:
-            query = f'from(bucket:"{self.bucket}")\
-                |> range(start: 0)\
-                |> filter(fn:(r) => r._measurement == "{sensor_type.name}")\
-                |> last()'
-
-            try:
-                result = self.query_api.query(org=self.org, query=query)
-                return result[0].records[0].get_value()
-            except IndexError:
-                logging.info("%s table is empty", sensor_type.name)
-                return None
-            except NewConnectionError:
-                logging.exception("InfluxDB Connection error, couldn't write")
-                return None
-            except ApiException:
-                logging.exception("InfluxDB ApiException, couldn't write")
-                return None
 
     def add(self, sensor_type: SensorType, value: int | float) -> None:
         with self._lock:
@@ -94,20 +73,20 @@ class InfluxDatabase:
             try:
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             except NewConnectionError:
-                logging.exception("InfluxDB Connection error, couldn't write")
+                logging.error("InfluxDB Connection error, couldn't write")
             except ApiException:
-                logging.exception("InfluxDB ApiException, couldn't write")
+                logging.error("InfluxDB ApiException, couldn't write")
 
 
 class SensorReadings:
     def __init__(self, database: InfluxDatabase) -> None:
-        self.readings = {
-            SensorType.TEMPERATURE: database.get_last(SensorType.TEMPERATURE),
-            SensorType.HUMIDITY: database.get_last(SensorType.HUMIDITY),
-            SensorType.PRESSURE: database.get_last(SensorType.PRESSURE),
-            SensorType.PM1: database.get_last(SensorType.PM1),
-            SensorType.PM2_5: database.get_last(SensorType.PM2_5),
-            SensorType.PM10: database.get_last(SensorType.PM10),
+        self.readings: dict[SensorType, int | float | None] = {
+            SensorType.TEMPERATURE: None,
+            SensorType.HUMIDITY: None,
+            SensorType.PRESSURE: None,
+            SensorType.PM1: None,
+            SensorType.PM2_5: None,
+            SensorType.PM10: None,
         }
         self.database = database
 
@@ -186,7 +165,7 @@ class Switch:
             callback: Callable[[Key, bool], None],
             debounce: float = 0.05,
             long_push_time: float = 0.5,
-            ) -> None:
+    ) -> None:
         """ Maintains current state of push button after debouncing.
             Calls callback(key, False) when button is pushed.
             Calls callback(key, True) again when button is pushed for more than long_push_time seconds
@@ -240,7 +219,7 @@ class FileLock:
             self.lock_file = open(self.lock_filepath, "w", encoding="utf-8")
             try:
                 fcntl.flock(self.lock_file, fcntl.LOCK_EX)
-            except:
+            except Exception:
                 self.lock_file.close()
                 self.lock_file = None
                 raise
@@ -270,13 +249,13 @@ class ConfigManager:
         "file_lock": FileLock(CONFIG["sensor_lock"]),
         "st_mtime": float('-inf'),
         "config": None
-        }
+    }
     _display_cache: ConfigCache = {
         "config_file": CONFIG["display_file"],
         "file_lock": nullcontext(),
         "st_mtime": float('-inf'),
         "config": None
-        }
+    }
 
     @classmethod
     def is_cache_current(cls, *, display_config: bool) -> bool:
