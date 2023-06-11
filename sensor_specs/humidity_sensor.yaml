@@ -3,10 +3,14 @@ sensors:
     model: DHT22
     measure_unit: "%"
     measure_freq_unit: s # Seconds
-    measure_freq_caps: #TODO: Update caps when discussed
-      - 1
-      - 2
-      - 3
-    default_measure_freq: 2
+    measure_freq_caps:
+      - 5
+      - 10
+      - 15
+      - 30
+      - 60
+      - 120
+      - 240
+    default_measure_freq: 5
     env_name: HUMIDITY_DHT22_FREQ
     active: true

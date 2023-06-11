@@ -1,57 +1,127 @@
-from typing import Literal
+from __future__ import annotations
+from typing import List
+from luma.core.virtual import terminal as luma_terminal
+from luma.lcd.device import st7789, backlit_device
+from luma.core.interface.serial import spi
 from PIL import ImageFont
-from luma.core.device import device as luma_device
-from luma.core.render import canvas
 
-from base_display import BaseDisplayHandler
 
-class ScreenDisplay(BaseDisplayHandler):
-    def __init__(self, display: luma_device) -> None:
-        super().__init__()
-        self._font = ImageFont.truetype("DejaVuSans.ttf", 12)
-        self._font_height = self._font.getsize("M")[1]
-        self.rows = display.height // self._font_height
-        self.highlight = -1
-        self._text_lines: list[str] = []
-        self._display_device = display
-        self._display_device.show()
+class Terminal(luma_terminal):
+    def __init__(self, device: backlit_device, font=None, color="white", bgcolor="blue",
+                 tabstop=4, line_height=None, animate=False, word_wrap=False):
+        # if depth > 0 then don't flush (don't display on device just write to bitmap/image)
+        self.context_manager_depth = 0
+        self.scroll = False
+        super().__init__(device, font, color, bgcolor, tabstop, line_height, animate, word_wrap)
 
-    def clear(self, layer: Literal["text", "top", "all"] = "text"):
-        if layer == "all" or layer == "text":
-            self._display_device.clear()
-            self._text_lines.clear()
+    def goto(self, x: int, y: int) -> None:
+        if (0 <= x < self.width) and (0 <= y < self.height):
+            # pylint: disable=attribute-defined-outside-init
+            self._cx = self._cw * x
+            self._cy = self._ch * y
+            # pylint: enable=attribute-defined-outside-init
 
-    def push_back(self, text: str):
-        redraw = False
-        if len(self._text_lines) >= self.rows:
-            self._text_lines.pop(0)
-            redraw = True
-        self._text_lines.append(text)
-        # TODO: only redraw when redraw is true if false update part of screen
-        self._redraw()
+    @property
+    def x(self):
+        return self._cx // self._cw
 
-    def push_front(self, text: str):
-        if len(self._text_lines) >= self.rows:
-            self._text_lines.pop()
-        self._text_lines.insert(0, text)
-        self._redraw()
+    @property
+    def y(self):
+        return self._cy // self._ch
 
-    def highlight_text(self, row: int):
-        self.highlight = row
-        self._redraw() # TODO: redraw only rows that get/stop being highlighted
+    def println(self, text="", *, highlight=False, fill=True, scroll_first=False) -> None:
+        if fill:
+            text = text.ljust(self.width - self.x)
+        if scroll_first:
+            self.scroll = True
+            self.newline()
+            self.scroll = False
+        if highlight:
+            self.reverse_colors()
+            super().println(text)
+            self.reverse_colors()
+        else:
+            super().println(text)
 
-    def _redraw(self):
-        self._display_device.clear()
-        with canvas(self._display_device) as draw:
-            for index, line in enumerate(self._text_lines):
-                fill = "white"
-                if index == self.highlight:
-                    fill = "black"
-                    draw.rectangle((
-                        0, index * self._font_height,
-                        self._display_device.width, (index + 1) * self._font_height), outline="white", fill="white")
-                draw.text((0, index * self._font_height), line, fill=fill, font=self._font)
+    def newline(self) -> None:
+        if self.scroll or self.y + 1 < self.height:
+            super().newline()
+        else:
+            self.flush()
+            self._cy += self._ch
 
-    def update_row(self, row: int, text: str):
-        self._text_lines[row] = text
-        self._redraw() # TODO: redraw only updated row
+    def flush(self) -> None:
+        if self.context_manager_depth == 0:
+            super().flush()
+
+    def turn_on(self) -> None:
+        self._device.backlight(True)
+        self._device.show()
+
+    def turn_off(self) -> None:
+        self._device.backlight(False)
+        self._device.hide()
+
+
+class ScreenDisplay:
+    def __init__(self, terminal: Terminal) -> None:
+        self._display = terminal
+        self.rows = self._display.height
+        self.cols = self._display.width
+
+    def __enter__(self) -> None:
+        self._display.context_manager_depth += 1
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self._display.context_manager_depth -= 1
+        self._display.flush()
+
+    def clear(self) -> None:
+        self._display.clear()
+
+    def print_lines(self, lines: List[str], *, highlight: int = -1) -> None:
+        self._display.goto(0, 0)
+        for i, line in enumerate(lines):
+            self._display.println(line, highlight=(i == highlight))
+        # clear unused part of screen
+        for _ in range(self.rows - len(lines)):
+            self._display.println()
+
+    def push_back(self, text: str, *, highlight: bool = False) -> None:
+        self._display.goto(0, self._display.height - 1)
+        self._display.println(text, highlight=highlight, scroll_first=True)
+
+    def update_row(self, row: int, text: str, *, col: int = 0, highlight: bool = False, fill: bool = True) -> None:
+        self._display.goto(col, row)
+        self._display.println(text, highlight=highlight, fill=fill)
+
+    def foreground_color(self, value) -> None:
+        self._display.foreground_color(value)
+
+    def background_color(self, value) -> None:
+        self._display.background_color(value)
+
+    def reset(self) -> None:
+        self._display.reset()
+
+    def turn_on(self) -> None:
+        self._display.turn_on()
+
+    def turn_off(self) -> None:
+        self._display.turn_off()
+
+
+class ST7789Display(ScreenDisplay):
+    def __init__(self) -> None:
+        super().__init__(
+            Terminal(
+                st7789(
+                    spi(gpio_DC=27, gpio_RST=17),
+                    width=320,
+                    height=240,
+                    rotate=0,
+                    active_low=False
+                ),
+                font=ImageFont.truetype("DejaVuSansMono.ttf", 24)
+            )
+        )
