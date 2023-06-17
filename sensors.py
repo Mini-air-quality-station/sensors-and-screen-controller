@@ -25,11 +25,13 @@ class MutableBool:
     def __eq__(self, __value: object) -> bool:
         return self.bool_value == __value
 
+
 class Sensor(ABC):
-    def __init__(self) -> None:
+    def __init__(self, sensor_types: list[SensorType]) -> None:
         super().__init__()
+        self._sensor_types = sensor_types
         self._lock = Lock()
-        # MutableBool is true if values are new(weren't read since last addition)
+        # MutableBool is true if values are new (weren't read since last addition)
         bool_deque_type = tuple[MutableBool, deque[int | float]]
         self._readings: DefaultDict[SensorType, bool_deque_type] = defaultdict(lambda: (MutableBool(False), deque(list(), 6)))
 
@@ -52,11 +54,11 @@ class Sensor(ABC):
 
 class DHT(Sensor):
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(sensor_types=[SensorType.TEMPERATURE, SensorType.HUMIDITY])
         self.dht = DHT22(board.D4)
 
     def get_reading(self, sensor_type: SensorType) -> int | float:
-        assert sensor_type in [SensorType.TEMPERATURE, SensorType.HUMIDITY], f"Wrong DHT sensor type({sensor_type})"
+        assert sensor_type in self._sensor_types, f"Wrong DHT sensor type({sensor_type})"
         with self._lock:
             try:
                 if sensor_type is SensorType.TEMPERATURE:
@@ -70,16 +72,16 @@ class DHT(Sensor):
             except RuntimeError as exc:
                 raise SensorReadingError from exc
 
-            return self._get_median(sensor_type)
+        return self._get_median(sensor_type)
 
 
 class BMP280(Sensor):
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(sensor_types=[SensorType.PRESSURE])
         self.bmp280 = adafruit_bmp280.Adafruit_BMP280_I2C(board.I2C(), address=0x76)
 
     def get_reading(self, sensor_type: SensorType) -> int | float:
-        assert sensor_type is SensorType.PRESSURE, f"Wrong BMP280 sensor type({sensor_type})"
+        assert sensor_type in self._sensor_types, f"Wrong BMP280 sensor type({sensor_type})"
         with self._lock:
             try:
                 pressure = self.bmp280.pressure
@@ -88,7 +90,7 @@ class BMP280(Sensor):
             except (ValueError, ArithmeticError) as exc:
                 raise SensorReadingError from exc
 
-            return self._get_median(sensor_type)
+        return self._get_median(sensor_type)
 
 
 class PMSA003C(Sensor):
@@ -97,7 +99,7 @@ class PMSA003C(Sensor):
     def __init__(self, pi: pigpio.pi) -> None:
         if not pi.connected:
             raise AttributeError
-        super().__init__()
+        super().__init__(sensor_types=[SensorType.PM1, SensorType.PM2_5, SensorType.PM10])
         self.RX = 24
         self.pi = pi
         self.start1 = 0x42
@@ -134,9 +136,7 @@ class PMSA003C(Sensor):
             self.data = bytearray()
 
     def get_reading(self, sensor_type: SensorType) -> int | float:
-        assert sensor_type in [SensorType.PM1, SensorType.PM2_5, SensorType.PM10], (
-            f"Wrong PMSA003C sensor type({sensor_type})"
-        )
+        assert sensor_type in self._sensor_types, f"Wrong PMSA003C sensor type({sensor_type})"
         with self._lock:
             try:
                 self.update()
