@@ -33,7 +33,7 @@ class Sensor(ABC):
         self._lock = Lock()
         # MutableBool is true if values are new (weren't read since last addition)
         bool_deque_type = tuple[MutableBool, deque[int | float]]
-        self._readings: DefaultDict[SensorType, bool_deque_type] = defaultdict(lambda: (MutableBool(False), deque(list(), 6)))
+        self._readings: DefaultDict[SensorType, bool_deque_type] = defaultdict(lambda: (MutableBool(False), deque(list(), 7)))
 
     @abstractmethod
     def get_reading(self, sensor_type: SensorType) -> int | float:
