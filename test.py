@@ -1,4 +1,5 @@
 import logging
+import random
 import signal
 import time
 from threading import Lock, Thread
@@ -9,6 +10,7 @@ from PIL import ImageFont
 from display import ScreenDisplay, Terminal
 from sensor_main import Device
 from util import CONFIG, ConfigManager, FileLock
+import sensors
 
 
 PIN_TO_KEY = {
@@ -18,6 +20,11 @@ PIN_TO_KEY = {
     13: pygame.K_RIGHT
 }
 
+def get_reading(*_args) -> int | float:
+    return random.randint(10, 50)
+
+def init(self, *_args):
+    super(type(self), self).__init__([])
 
 def main():
     logging.basicConfig(
@@ -27,6 +34,13 @@ def main():
         filename='sensor.log',
         encoding='utf-8',
     )
+    sensors.DHT.__init__ = init
+    sensors.BMP280.__init__ = init
+    sensors.PMSA003C.__init__ = init
+    sensors.DHT.get_reading = get_reading
+    sensors.BMP280.get_reading = get_reading
+    sensors.PMSA003C.get_reading = get_reading
+
     CONFIG["sensor_file"] = "sensor_specs/sensors_config.ini"
     CONFIG["sensor_lock"] = "sensor_specs/envs.lock"
     # pylint: disable=protected-access
