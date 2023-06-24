@@ -73,9 +73,9 @@ class InfluxDatabase:
             try:
                 self.write_api.write(bucket=self.bucket, org=self.org, record=point)
             except NewConnectionError as exc:
-                logging.error(f"InfluxDB Connection error, couldn't write {exc.message}")
+                logging.error("InfluxDB Connection error, couldn't write: %s", exc)
             except ApiException as exc:
-                logging.error(f"InfluxDB ApiException, couldn't write: {exc.message}")
+                logging.error("InfluxDB ApiException, couldn't write: %s", exc)
 
 
 class SensorReadings:
