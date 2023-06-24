@@ -12,6 +12,7 @@ from display import ScreenDisplay, Terminal
 from sensor_main import Device
 from util import CONFIG, ConfigManager, FileLock
 import sensors
+from util import SensorType
 
 
 PIN_TO_KEY = {
@@ -21,8 +22,29 @@ PIN_TO_KEY = {
     13: pygame.K_RIGHT
 }
 
-def get_reading(*_args) -> int | float:
-    return random.randint(10, 50)
+def get_reading(self, sensor_type: SensorType) -> int | float:
+    wiggle = 1
+    add_or_sub = True if random.random() < 0.5 else False
+    temp_val = 21 + wiggle if add_or_sub else 21
+    hum_val = 60 + wiggle if add_or_sub else 60
+    press_val = 1015 + wiggle if add_or_sub else 1015
+    pm1_val = 3 + wiggle if add_or_sub else 3
+    pm25_val = 1 + wiggle if add_or_sub else 1
+    pm10_val = 2 + wiggle if add_or_sub else 2
+    match sensor_type:
+        case SensorType.TEMPERATURE:
+            return temp_val
+        case SensorType.HUMIDITY:
+            return hum_val
+        case SensorType.PRESSURE:
+            return press_val
+        case SensorType.PM1:
+            return pm1_val
+        case SensorType.PM2_5:
+            return pm25_val
+        case SensorType.PM10:
+            return pm10_val
+
 
 def init(self, *_args):
     super(type(self), self).__init__([])
