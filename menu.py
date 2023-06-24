@@ -266,10 +266,10 @@ class Interface:
                     value_str = '---' if value is None else str(value)
                     string = f"{thresholds[sensor_type][0]} ="
                     row = int(((i + 1) * self._display.rows / (len(show) + 1)))
-                    self._display.update_row(row, string, col=2)
+                    self._display.update_row(row, string, col=1)
                     if value is not None:
                         self._display.background_color(get_color(value, thresholds[sensor_type][1]))
-                    self._display.update_row(row, f"{value_str} μg/m³", col=3 + len(string), fill=False)
+                    self._display.update_row(row, f"{value_str} μg/m³", col=2 + len(string), fill=False)
                     self._display.reset()
             else:
                 units = [' °C', '%', ' hPa']
@@ -284,7 +284,7 @@ class Interface:
                     self._display.update_row(
                         int(((i + 1) * self._display.rows / (len(show) + 1))),
                         f"{sensor_type.name.capitalize()} = {value_str}{unit}",
-                        col=2
+                        col=1
                     )
 
     def update_sensor(self, sensor_type: SensorType):
