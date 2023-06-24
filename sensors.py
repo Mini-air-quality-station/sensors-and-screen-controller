@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from threading import Lock
-from typing import DefaultDict, Literal
+from typing import DefaultDict, Literal, Union
 from collections import deque, defaultdict
 from statistics import median_low
 import board
@@ -32,7 +32,7 @@ class Sensor(ABC):
         self._sensor_types = sensor_types
         self._lock = Lock()
         # MutableBool is true if values are new (weren't read since last addition)
-        bool_deque_type = tuple[MutableBool, deque[int | float]]
+        bool_deque_type = tuple[MutableBool, deque[Union[int, float]]]
         self._readings: DefaultDict[SensorType, bool_deque_type] = defaultdict(lambda: (MutableBool(False), deque(list(), 7)))
 
     @abstractmethod
